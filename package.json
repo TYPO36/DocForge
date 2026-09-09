@@ -1,0 +1,47 @@
+{
+  "name": "docforge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "轻量 RAG 文档问答 · 本地/Docker/Cloudflare 三端",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:web": "vite",
+    "dev:server": "tsx watch src/server/index.node.ts",
+    "dev:cf": "wrangler dev",
+    "build": "vite build && npm run build:server",
+    "build:web": "vite build",
+    "build:server": "esbuild src/server/index.node.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-server/index.node.js",
+    "start": "node dist-server/index.node.js",
+    "deploy": "npm run build:web && wrangler deploy",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "drizzle-orm": "^0.38.4",
+    "hono": "^4.6.16",
+    "mammoth": "^1.9.0",
+    "unpdf": "^0.12.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "drizzle-kit": "^0.30.2",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "wrangler": "^3.99.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.1",
+    "esbuild": "^0.24.2",
+    "@cloudflare/workers-types": "^4.20250109.0"
+  }
+}

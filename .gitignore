@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-server/
+.dev.vars
+.env
+*.local
+data/
+test-docs/
+.dsh-vision-router/
+ui-mockups/
+docs/
+.wrangler/

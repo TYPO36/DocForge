@@ -1,0 +1,16 @@
+{
+  // DocForge Cloudflare Worker 配置
+  "name": "docforge",
+  "main": "src/server/index.worker.ts",
+  "compatibility_date": "2025-01-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "dist", "binding": "ASSETS" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "docforge", "database_id": "REPLACE_WITH_D1_DATABASE_ID" }
+  ],
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "docforge-files" }
+  ],
+  "observability": { "enabled": true },
+  "limits": { "cpu_ms": 30000 }
+}

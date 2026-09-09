@@ -1,0 +1,13 @@
+services:
+  docforge:
+    build: .
+    container_name: docforge
+    ports:
+      - "8788:8788"
+    volumes:
+      - ./data:/data
+    environment:
+      - PORT=8788
+      - DATA_DIR=/data
+      - MAX_UPLOAD_MB=20
+    restart: unless-stopped
