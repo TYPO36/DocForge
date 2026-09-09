@@ -6,11 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "assets": { "directory": "dist", "binding": "ASSETS" },
   "d1_databases": [
-    { "binding": "DB", "database_name": "docforge", "database_id": "REPLACE_WITH_D1_DATABASE_ID" }
+    { "binding": "DB", "database_name": "docforge", "database_id": "741cd425-7243-43c3-bd83-6460b54edf10" }
   ],
-  "r2_buckets": [
-    { "binding": "FILES", "bucket_name": "docforge-files" }
-  ],
-  "observability": { "enabled": true },
-  "limits": { "cpu_ms": 30000 }
+  // R2（原文件存储）暂未绑定：账号启用 R2 后恢复此段并执行
+  //   npx wrangler r2 bucket create docforge-files
+  "observability": { "enabled": true }
 }

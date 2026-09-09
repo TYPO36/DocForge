@@ -63,14 +63,28 @@ export async function buildDocGraph(
       tick();
       continue;
     }
-    const parsed = extractJson(raw) as { entities?: { name?: unknown; type?: unknown }[]; relations?: { source?: unknown; target?: unknown; description?: unknown }[] } | null;
-    if (!parsed || !Array.isArray(parsed.entities) && !Array.isArray(parsed.relations)) {
-      console.warn("[graph] 批次响应无法解析为 JSON，跳过");
+    // —— 解析鲁棒性：严格 JSON → 修复重试(1 次) → 正则兜底 ——
+    let parsed = tryParseGraphJson(raw);
+    if (!parsed) {
+      // 修复重试：仅失败批次多 1 次调用（让模型把解释文本整理成纯 JSON）
+      try {
+        const fix = await chatJson(profile, [
+          { role: "system", content: sys },
+          { role: "user", content:
+            "上一步输出不是严格 JSON。请把以下内容整理为唯一一个严格 JSON（{\"entities\":[{\"name\":\"\",\"type\":\"\"}],\"relations\":[{\"source\":\"\",\"target\":\"\",\"description\":\"\"}]}），丢弃解释与 Markdown，不要省略任何实体或关系：\n\n" +
+            raw.slice(0, 6000) },
+        ], { maxTokens: 2400, temperature: 0, timeoutMs: 150000 });
+        parsed = tryParseGraphJson(fix);
+      } catch { parsed = null; }
+    }
+    if (!parsed) parsed = salvageGraphJson(raw);
+    if (!parsed || (parsed.entities.length === 0 && parsed.relations.length === 0)) {
+      console.warn("[graph] 批次响应不可解析（含修复重试与正则兜底），跳过");
       tick();
       continue;
     }
     const batchNames = new Set<string>();
-    const ents = (parsed.entities ?? []).slice(0, 60);
+    const ents = parsed.entities.slice(0, 60);
     for (const e of ents) {
       const name = typeof e?.name === "string" ? e.name.trim().slice(0, MAX_NAME) : "";
       if (!name || name.length < 2) continue;
@@ -116,12 +130,55 @@ function normKey(name: string): string {
   return name.toLowerCase().replace(/[\s，。、；：,.!?;:""''()（）\[\]【】《》<>/\\-]+/g, "");
 }
 
-function extractJson(raw: string): unknown {
+interface RawGraph {
+  entities: { name: string; type?: string }[];
+  relations: { source: string; target: string; description?: string }[];
+}
+
+/** 严格 JSON 尝试（自动裁剪到首 { 与末 }） */
+function tryParseGraphJson(raw: string): RawGraph | null {
   const t = raw.trim();
   const s = t.indexOf("{");
   const e = t.lastIndexOf("}");
   if (s < 0 || e <= s) return null;
-  try { return JSON.parse(t.slice(s, e + 1)); } catch { return null; }
+  try {
+    const v = JSON.parse(t.slice(s, e + 1));
+    if (v && typeof v === "object") {
+      return {
+        entities: Array.isArray(v.entities) ? v.entities : [],
+        relations: Array.isArray(v.relations) ? v.relations : [],
+      };
+    }
+  } catch { /* fallthrough */ }
+  return null;
+}
+
+/** 正则兜底：从夹带解释文本的响应里捞取实体名/关系三元组 */
+function salvageGraphJson(raw: string): RawGraph | null {
+  const entities: { name: string; type?: string }[] = [];
+  const relations: { source: string; target: string; description?: string }[] = [];
+  const nameRe = /"name"\s*:\s*"((?:[^"\\]|\\.){2,60})"/g;
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = nameRe.exec(raw)) !== null) {
+    const n = m[1];
+    if (!seen.has(n)) { seen.add(n); entities.push({ name: n }); }
+    if (entities.length >= 60) break;
+  }
+  const srcRe = /"source"\s*:\s*"((?:[^"\\]|\\.){1,60})"/g;
+  const tgtRe = /"target"\s*:\s*"((?:[^"\\]|\\.){1,60})"/g;
+  const descRe = /"description"\s*:\s*"((?:[^"\\]|\\.){0,140})"/g;
+  const srcs = [...raw.matchAll(srcRe)].map((x) => x[1]);
+  const tgts = [...raw.matchAll(tgtRe)].map((x) => x[1]);
+  const descs = [...raw.matchAll(descRe)].map((x) => x[1]);
+  const n = Math.max(srcs.length, tgts.length);
+  for (let i = 0; i < n && relations.length < 60; i++) {
+    const source = srcs[i] ?? "";
+    const target = tgts[i] ?? "";
+    if (source && target) relations.push({ source, target, description: descs[i] ?? "" });
+  }
+  if (entities.length === 0 && relations.length === 0) return null;
+  return { entities, relations };
 }
 
 /** 2-gram Dice（实体链接用） */

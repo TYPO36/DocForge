@@ -13,12 +13,13 @@ function uid(): string {
 
 export interface CfBindings {
   DB: D1Database;
-  FILES: R2Bucket;
+  /** R2 可选：未绑定（账号未启用 R2）时降级为不持久化原文件，索引/问答不受影响 */
+  FILES?: R2Bucket;
 }
 
 export class D1Storage implements Storage {
   private db: ReturnType<typeof drizzle>;
-  private r2: R2Bucket;
+  private r2: R2Bucket | undefined;
   constructor(bindings: CfBindings) {
     this.db = drizzle(bindings.DB);
     this.r2 = bindings.FILES;
@@ -101,14 +102,17 @@ export class D1Storage implements Storage {
   }
 
   async putFile(key: string, data: ArrayBuffer | Uint8Array, contentType: string) {
+    if (!this.r2) return; // 未启用 R2：跳过原文件持久化（上传/索引/问答不受影响）
     await this.r2.put(key, data, { httpMetadata: { contentType } });
   }
   async getFile(key: string) {
+    if (!this.r2) return undefined;
     const obj = await this.r2.get(key);
     if (!obj) return undefined;
     return { data: await obj.arrayBuffer(), contentType: obj.httpMetadata?.contentType ?? "application/octet-stream" };
   }
   async deleteFile(key: string) {
+    if (!this.r2) return;
     await this.r2.delete(key);
   }
   async beginProcessing(id: string): Promise<boolean> {
