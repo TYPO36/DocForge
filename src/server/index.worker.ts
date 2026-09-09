@@ -3,13 +3,17 @@ import { D1Storage, type CfBindings } from "./storage/d1";
 
 export interface Env extends CfBindings {
   ASSETS: Fetcher;
+  /** 私有模式（可选）：配置后整站需登录；未配置=完全开放 */
+  ADMIN_USER?: string;
+  ADMIN_PASSWORD?: string;
+  SESSION_SECRET?: string;
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api")) {
-      const app = createApp(new D1Storage(env));
+      const app = createApp(new D1Storage(env), env);
       return app.fetch(request, env, ctx);
     }
     // 静态资源（前端构建产物 dist/）由 ASSETS binding 托管

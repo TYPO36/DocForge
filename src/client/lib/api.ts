@@ -1,10 +1,12 @@
 import type { AppConfig, ChatConfig, EmbedConfig, Citation, DocumentMeta, TestResult } from "../../shared/types";
 import { ragHeaders, chatHeaders, embedHeaders } from "./config";
+import { dispatchUnauthorized } from "./auth";
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   const data = await res.json().catch(() => null);
   if (!res.ok) {
+    if (res.status === 401) dispatchUnauthorized(); // 会话过期/未登录：踢回登录页
     throw new Error((data as any)?.message ?? (data as any)?.error ?? "请求失败 (" + res.status + ")");
   }
   return data as T;
@@ -114,6 +116,7 @@ export async function uploadDocumentStreaming(
         } catch { reject(new Error("上传响应解析失败")); }
       } else {
         // 前置校验错误（400/413/422 纯 JSON）
+        if (xhr.status === 401) dispatchUnauthorized();
         let msg = "上传失败 (" + xhr.status + ")";
         try {
           const data = JSON.parse(xhr.responseText || "{}");
@@ -182,6 +185,7 @@ export async function streamChat(
   });
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => null);
+    if (res.status === 401) dispatchUnauthorized();
     cb.onError((data as any)?.error ?? "请求失败 (" + res.status + ")");
     return;
   }

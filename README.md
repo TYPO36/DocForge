@@ -72,6 +72,29 @@ npx wrangler deploy
 
 > 数据说明：文档分块与向量存 D1（免费 5GB），图谱实体/关系存 D1，原文件存 R2（免费 10GB），均属于你的账号，仅你可见。**无需任何服务端密钥**。
 
+### 可选：私有模式（登录墙）
+
+默认**完全开放**（clone 即用、无登录），与开源定位一致。若你的公网部署不希望他人使用，配置两个密钥即可开启登录：
+私有模式开启后：整站仅管理员可访问——所有 `/api/*` 需登录，前端自动跳转登录页。
+
+~~~bash
+# 1. 设置管理员密码（必填，开启私有模式）
+npx wrangler secret put ADMIN_PASSWORD        # 输入你的密码
+
+# 2. （可选）自定义用户名，默认 admin
+npx wrangler secret put ADMIN_USER
+
+# 3. （可选）自定义 Cookie 签名密钥；不设则由密码派生
+npx wrangler secret put SESSION_SECRET
+~~~
+
+实现细节（`src/server/auth.ts`）：
+- 判定依据：**存在 `ADMIN_PASSWORD` 即私有，不存在即开放**——开源部署零配置，私有部署零代码改动
+- 登录成功签发 **HttpOnly Cookie**（关闭浏览器即失效，服务端 7 天硬上限）
+- 密码恒定时间比较 + 每 IP 登录失败限速（10 次/15 分钟）
+- 凭据只存 Cloudflare Secret，**绝不进入代码仓库**；公开代码里搜不到任何密码
+- 本地验证：`ADMIN_PASSWORD=xxx npm run dev` 即启用登录墙
+
 ## 检索架构（RAG v2，纯 TS 自研）
 
 - **A 层 · 检索质量**：多查询改写 → 向量余弦 + 本地 BM25 → RRF 倒排融合 → 父子窗口补全 → MMR-lite 去冗余 →（可选）bge-reranker 精排

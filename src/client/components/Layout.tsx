@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { I } from "./Icons";
+import { useAuth } from "../lib/auth";
 
 const tabs = [
   { to: "/", label: "对话", icon: <I.Chat size={14} /> },
@@ -8,6 +9,7 @@ const tabs = [
 ];
 
 export function Layout() {
+  const { privateMode, logout } = useAuth();
   return (
     <div className="app" style={{ flexDirection: "column" }}>
       <header className="topbar">
@@ -33,6 +35,11 @@ export function Layout() {
 
         <div className="spacer" />
         <span className="badge"><span className="dot" />数据与 Key 仅存本机浏览器</span>
+        {privateMode && (
+          <button className="btn-ghost" onClick={() => void logout()} title="退出登录" style={{ padding: "5px 13px", fontSize: 12 }}>
+            退出
+          </button>
+        )}
       </header>
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <Outlet />

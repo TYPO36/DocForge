@@ -12,7 +12,7 @@ const DB_FILE = process.env.DB_FILE ?? path.join(DATA_DIR, "docforge.db");
 const storage = new SqliteStorage(DB_FILE, DATA_DIR);
 // 上次进程异常退出可能遗留卡在 processing 的文档，启动时复位为 failed，便于重新索引/删除
 await storage.resetStuckProcessing();
-const app = createApp(storage);
+const app = createApp(storage, process.env);
 
 // 生产模式托管前端静态资源
 const distDir = path.join(process.cwd(), "dist");
