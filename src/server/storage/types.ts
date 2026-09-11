@@ -44,7 +44,7 @@ export interface Storage {
   createDocument(doc: NewDocument): Promise<void>;
   listDocuments(): Promise<DocumentRow[]>;
   getDocument(id: string): Promise<DocumentRow | undefined>;
-  updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount" | "embeddingProfile">>): Promise<void>;
+  updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount" | "embeddingProfile" | "progressStage" | "progressPct">>): Promise<void>;
   deleteDocument(id: string): Promise<void>;
   insertChunks(rows: ChunkRow[]): Promise<void>;
   listChunksByDoc(docId: string): Promise<ChunkRow[]>;

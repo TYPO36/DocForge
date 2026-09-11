@@ -14,6 +14,9 @@ export const documents = sqliteTable("documents", {
   graphError: text("graph_error"),
   entityCount: integer("entity_count").notNull().default(0),
   embeddingProfile: text("embedding_profile"),
+  // —— 处理进度：供前端在刷新/断线后仍能看到真实阶段（null 表示当前无进行中的处理）
+  progressStage: text("progress_stage"),
+  progressPct: integer("progress_pct").notNull().default(0),
 });
 
 export const chunks = sqliteTable("chunks", {

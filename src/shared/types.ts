@@ -72,6 +72,10 @@ export interface DocumentMeta {
   graphError?: string | null;
   /** 文档索引使用的非敏感 Embedding 配置标识；为空表示历史文档尚未记录。 */
   embeddingProfile?: string | null;
+  /** 当前处理阶段（parse/chunk/embed/graph/finalize）；为空表示没有进行中的处理。 */
+  progressStage?: string | null;
+  /** 当前处理进度百分比（0-100）。 */
+  progressPct?: number;
 }
 
 export interface ChunkInfo {

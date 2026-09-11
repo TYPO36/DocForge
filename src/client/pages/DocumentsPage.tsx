@@ -11,6 +11,18 @@ import { fetchDocuments, uploadDocumentStreaming, deleteDocument, deleteManyDocu
 /** 同时处理的最大文件数（其余排队自动补位） */
 const MAX_CONCURRENT = 3;
 
+/** 存在处理中文档时的列表轮询间隔（毫秒）：刷新页面或断线重连后仍能看到真实进度 */
+const PROCESSING_POLL_MS = 3000;
+
+/** 服务端处理阶段 → 展示文案（与 documentProcessor 的 stage 取值保持一致） */
+const STAGE_LABELS: Record<string, string> = {
+  parse: "解析文档",
+  chunk: "文本分块",
+  embed: "向量化",
+  finalize: "写入索引",
+  graph: "图谱抽取",
+};
+
 type JobStatus = "queued" | "running" | "done" | "error";
 
 interface Job {
@@ -71,6 +83,14 @@ export default function DocumentsPage() {
     }).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // 有文档处于"处理中"时自动轮询：进度已在服务端持久化，刷新页面或断线后仍能跟进到最终结果
+  const hasProcessing = docs.some((d) => d.status === "processing");
+  useEffect(() => {
+    if (!hasProcessing) return;
+    const timer = window.setInterval(load, PROCESSING_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [hasProcessing, load]);
 
   // ===== 并发任务队列 =====
   // jobs 的权威副本放 ref，异步回调/调度器读最新值避免闭包过期；state 只负责渲染
@@ -413,7 +433,14 @@ export default function DocumentsPage() {
                 </div>
               </div>
               {d.status === "ready" && <span className="st st-ready">就绪</span>}
-              {d.status === "processing" && <span className="st st-index">索引中…</span>}
+              {d.status === "processing" && (
+                <span
+                  className="st st-index"
+                  title={(STAGE_LABELS[d.progressStage ?? ""] ?? "处理中") + (d.progressPct ? ` ${d.progressPct}%` : "")}
+                >
+                  索引中{d.progressPct ? ` ${d.progressPct}%` : "…"}
+                </span>
+              )}
               {d.status === "failed" && <span className="st st-fail">失败</span>}
             </div>
             {d.status === "failed" && d.error && (

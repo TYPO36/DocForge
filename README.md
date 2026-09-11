@@ -59,10 +59,11 @@ npx wrangler r2 bucket create docforge-files
 # 3. 把 database_id 填入 wrangler.jsonc
 #    "database_id": "你的D1数据库ID"
 
-# 4. 初始化数据库表（新库：0000、0001、0002；已有旧库按顺序补执行未运行的迁移）
+# 4. 初始化数据库表（新库：0000~0003；已有旧库按顺序补执行未运行的迁移）
 npx wrangler d1 execute docforge --remote --file=drizzle/0000_init.sql
 npx wrangler d1 execute docforge --remote --file=drizzle/0001_rag_v2.sql
 npx wrangler d1 execute docforge --remote --file=drizzle/0002_embedding_profile.sql
+npx wrangler d1 execute docforge --remote --file=drizzle/0003_document_progress.sql
 
 # 5. 构建并部署
 npm run build:web
@@ -107,7 +108,7 @@ npx wrangler secret put SESSION_SECRET
 
 | 方法 | 路径 | 说明 |
   |---|---|---|
-  | POST | /api/documents | 上传（multipart file 字段），需 x-embed-*；带对话/索引模型时同步建图谱 |
+  | POST | /api/documents | 上传（multipart file 字段），需 x-embed-*；返回 NDJSON 进度流，连接断开后任务仍在后台继续 |
   | GET | /api/documents | 文档列表（含 graphStatus / entityCount） |
   | DELETE | /api/documents/:id | 删除单个文档（真删除：索引 + 图谱 + 本地/R2 原文件） |
   | DELETE | /api/documents | 批量删除所选文档（body: {ids: string[]}，真删除） |
@@ -121,6 +122,15 @@ npx wrangler secret put SESSION_SECRET
 
 AI 配置通过请求头传递：x-chat-* / x-embed-*（含 `x-embed-dimension`）/ x-index-*（图谱抽取专用模型，可选，默认回退 chat）/ x-rerank-*（可选）/ x-opt-rewrite|x-opt-graph|x-opt-rerank（"1"/"0" 开关，默认 1/1/0）。Key 不落盘。
 
+### 索引任务与断线恢复
+
+上传、重新索引与补建图谱都在后台任务中执行，处理阶段与百分比会写入数据库：
+
+- 刷新页面、关闭标签页或网络中断都不会让索引半途而废。本地/Docker 部署下任务继续在进程内队列执行；Cloudflare Worker 部署下由 `waitUntil` 托管，响应结束或连接断开后仍会继续，平台限制为最多再运行 30 秒，超大文档或很慢的模型可能被截断——此时文档会停在「索引中」，重新索引即可。
+- 文档库会自动轮询处理中的文档，卡片上直接显示「索引中 62%」这类真实进度，重新打开页面也看得到。
+- 同一文档不会被并发处理两次：重复点击会返回「正在处理中」。
+- 本地/Docker 进程收到退出信号时，会先等待进行中的索引任务收敛（最多 10 秒）再退出。
+
 ### 更换 Embedding 后重建索引
 
 文档会记录不含 API Key 的 Embedding 服务地址、模型和实际向量维度标识。切换其中任一项后，文档库会显示「需重建索引」；请逐个点击「重建索引」。全部现有文档均与当前模型不兼容时，问答接口会拒绝检索并明确提示此操作，避免返回看似正常但实际无关的答案。升级前创建的历史文档没有该标识，仍保持兼容，以便平滑迁移。
@@ -133,6 +143,7 @@ AI 配置通过请求头传递：x-chat-* / x-embed-*（含 `x-embed-dimension`�
   | DATA_DIR | ./data | 数据目录（SQLite + 原文件） |
   | DB_FILE | ./data/docforge.db | 数据库文件 |
   | MAX_UPLOAD_MB | 20 | 上传大小上限 |
+  | INDEX_CONCURRENCY | 2 | 本地/Docker 同时执行的索引任务数上限 |
 
 ## 目录结构
 ~~~

@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS documents (
   status TEXT NOT NULL DEFAULT 'processing', error TEXT, chunk_count INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   graph_status TEXT NOT NULL DEFAULT 'none', graph_error TEXT, entity_count INTEGER NOT NULL DEFAULT 0,
-  embedding_profile TEXT
+  embedding_profile TEXT, progress_stage TEXT, progress_pct INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS chunks (
   id TEXT PRIMARY KEY, doc_id TEXT NOT NULL, seq INTEGER NOT NULL,
@@ -61,6 +61,8 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
     add("graph_error", "graph_error TEXT");
     add("entity_count", "entity_count INTEGER NOT NULL DEFAULT 0");
     add("embedding_profile", "embedding_profile TEXT");
+    add("progress_stage", "progress_stage TEXT");
+    add("progress_pct", "progress_pct INTEGER NOT NULL DEFAULT 0");
   }
 
   // node:sqlite 返回蛇形列名，映射为驼峰模型
@@ -72,6 +74,8 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
       graphError: r.graph_error ?? null,
       entityCount: r.entity_count ?? 0,
       embeddingProfile: r.embedding_profile ?? null,
+      progressStage: r.progress_stage ?? null,
+      progressPct: r.progress_pct ?? 0,
     };
   }
   private mapChunk(r: any): ChunkRow {
@@ -94,13 +98,15 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
     const r = this.db.prepare("SELECT * FROM documents WHERE id = ?").get(id) as any;
     return r ? this.mapDoc(r) : undefined;
   }
-  async updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount" | "embeddingProfile">>) {
+  async updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount" | "embeddingProfile" | "progressStage" | "progressPct">>) {
     const sets: string[] = [];
     const vals: (string | number | null)[] = [];
     if (patch.status !== undefined) { sets.push("status = ?"); vals.push(patch.status); }
     if (patch.error !== undefined) { sets.push("error = ?"); vals.push(patch.error); }
     if (patch.chunkCount !== undefined) { sets.push("chunk_count = ?"); vals.push(patch.chunkCount); }
     if (patch.embeddingProfile !== undefined) { sets.push("embedding_profile = ?"); vals.push(patch.embeddingProfile); }
+    if (patch.progressStage !== undefined) { sets.push("progress_stage = ?"); vals.push(patch.progressStage); }
+    if (patch.progressPct !== undefined) { sets.push("progress_pct = ?"); vals.push(patch.progressPct); }
     if (sets.length === 0) return;
     vals.push(id);
     this.db.prepare("UPDATE documents SET " + sets.join(", ") + " WHERE id = ?").run(...vals);
@@ -220,7 +226,7 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
   }
   async resetStuckProcessing() {
     this.db
-      .prepare("UPDATE documents SET status = 'failed', error = ? WHERE status = 'processing'")
+      .prepare("UPDATE documents SET status = 'failed', progress_stage = NULL, progress_pct = 0, error = ? WHERE status = 'processing'")
       .run("上次处理被异常中断（服务重启），可重新索引或删除后重传");
   }
 }

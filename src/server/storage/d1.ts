@@ -37,7 +37,7 @@ export class D1Storage implements Storage {
     const rows = await this.db.select().from(documents).where(eq(documents.id, id));
     return rows[0];
   }
-  async updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount" | "embeddingProfile">>) {
+  async updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount" | "embeddingProfile" | "progressStage" | "progressPct">>) {
     await this.db.update(documents).set(patch).where(eq(documents.id, id));
   }
   async updateGraphState(id: string, patch: GraphStatePatch) {
@@ -150,7 +150,7 @@ export class D1Storage implements Storage {
   async resetStuckProcessing() {
     await this.db
       .update(documents)
-      .set({ status: "failed", error: "上次处理被异常中断，可重新索引或删除后重传" })
+      .set({ status: "failed", progressStage: null, progressPct: 0, error: "上次处理被异常中断，可重新索引或删除后重传" })
       .where(eq(documents.status, "processing"));
   }
 }
