@@ -94,7 +94,8 @@ export async function runRag(
     metaByDoc.set(d.id, { name: d.name, type: d.type });
   }
   if (metaByDoc.size === 0) return emptyResult(0, incompatibleDocuments);
-  const rows = await storage.allChunks();
+  // 只加载参与检索的兼容文档分块：不兼容/非就绪文档既不进内存，也不消耗 D1 读取额度。
+  const rows = await storage.chunksByDocIds([...metaByDoc.keys()]);
   if (rows.length === 0) return emptyResult(metaByDoc.size, incompatibleDocuments);
   const n = rows.length;
   const rowsByDoc = new Map<string, ChunkRow[]>();
@@ -110,7 +111,7 @@ export async function runRag(
     if (arr) arr.push(row);
     else rowsByDoc.set(row.docId, [row]);
   });
-  if (active.length === 0) return emptyResult();
+  if (active.length === 0) return emptyResult(metaByDoc.size, incompatibleDocuments);
   const vecCache = new Map<number, number[] | null>();
   const vecOf = (i: number): number[] | null => {
     let v = vecCache.get(i);

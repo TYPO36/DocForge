@@ -66,6 +66,15 @@ export class D1Storage implements Storage {
   async allChunks() {
     return this.db.select().from(chunks);
   }
+  async chunksByDocIds(docIds: string[]): Promise<ChunkRow[]> {
+    if (docIds.length === 0) return [];
+    // D1 单条查询的绑定参数上限为 100，超过后必须分批，否则直接报错。
+    const batches = chunkIds(docIds, 100);
+    const rowSets = await Promise.all(
+      batches.map((ids) => this.db.select().from(chunks).where(inArray(chunks.docId, ids))),
+    );
+    return rowSets.flat();
+  }
 
   // —— RAG v2 图谱（表结构由 drizzle/0001_rag_v2.sql 迁移；本地自动建） ——
   async replaceDocGraph(docId: string, ents: DocEntity[], rels: DocRelation[]) {

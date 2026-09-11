@@ -134,6 +134,17 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
   async allChunks(): Promise<ChunkRow[]> {
     return (this.db.prepare("SELECT * FROM chunks").all() as any[]).map((r) => this.mapChunk(r));
   }
+  async chunksByDocIds(docIds: string[]): Promise<ChunkRow[]> {
+    if (docIds.length === 0) return [];
+    const out: ChunkRow[] = [];
+    // 分批绑定占位符：低版本 SQLite 的变量上限可能只有 999，200/批留出充足余量。
+    for (const batch of batchIds(docIds, 200)) {
+      const placeholders = batch.map(() => "?").join(",");
+      const rows = this.db.prepare("SELECT * FROM chunks WHERE doc_id IN (" + placeholders + ")").all(...batch) as any[];
+      for (const r of rows) out.push(this.mapChunk(r));
+    }
+    return out;
+  }
 
   // —— RAG v2 图谱 ——
   async replaceDocGraph(docId: string, entities: DocEntity[], relations: DocRelation[]) {
@@ -212,6 +223,12 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
       .prepare("UPDATE documents SET status = 'failed', error = ? WHERE status = 'processing'")
       .run("上次处理被异常中断（服务重启），可重新索引或删除后重传");
   }
+}
+
+function batchIds(ids: string[], size: number): string[][] {
+  const batches: string[][] = [];
+  for (let index = 0; index < ids.length; index += size) batches.push(ids.slice(index, index + size));
+  return batches;
 }
 
 function parseChunkSeqs(value: string | null): number[] {

@@ -50,6 +50,14 @@ export interface Storage {
   listChunksByDoc(docId: string): Promise<ChunkRow[]>;
   deleteChunksByDoc(docId: string): Promise<void>;
   allChunks(): Promise<ChunkRow[]>;
+  /**
+   * 只查询指定文档的分块，供问答检索使用。
+   * 相比 allChunks() 全表读取，可避免把不兼容或非就绪文档的分块载入内存与 D1 读取额度。
+   *
+   * @param docIds 参与检索的文档 ID；为空时返回空数组且不发起查询。
+   * @returns 这些文档的全部分块（顺序不保证，调用方自行按 seq 归组）。
+   */
+  chunksByDocIds(docIds: string[]): Promise<ChunkRow[]>;
   putFile(key: string, data: ArrayBuffer | Uint8Array, contentType: string): Promise<void>;
   getFile(key: string): Promise<{ data: ArrayBuffer; contentType: string } | undefined>;
   deleteFile(key: string): Promise<void>;
