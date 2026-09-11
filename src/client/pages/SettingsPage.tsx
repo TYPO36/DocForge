@@ -5,6 +5,22 @@ import { loadConfig, saveConfig } from "../lib/config";
 import { useActionGuard } from "../lib/useActionGuard";
 import { testConnection } from "../lib/api";
 
+const SETTINGS_SECTION_IDS = {
+  models: "settings-models",
+  embedding: "settings-embedding",
+  privacy: "settings-privacy",
+  about: "settings-about",
+} as const;
+
+type SettingsSection = keyof typeof SETTINGS_SECTION_IDS;
+
+const SETTINGS_NAV = [
+  { id: "models", label: "模型配置", icon: <I.Chip /> },
+  { id: "embedding", label: "向量化 Embedding", icon: <I.Vector /> },
+  { id: "privacy", label: "数据与隐私", icon: <I.Shield /> },
+  { id: "about", label: "关于", icon: <I.Alert /> },
+] as const;
+
 export default function SettingsPage() {
   const [cfg, setCfg] = useState<AppConfig>(() => loadConfig());
   // 本次打开页面时,是否已从本机(localStorage)读到上次保存的 API Key
@@ -17,9 +33,15 @@ export default function SettingsPage() {
   const [chatRes, setChatRes] = useState<TestResult | null>(null);
   const [embedRes, setEmbedRes] = useState<TestResult | null>(null);
   const [showKey, setShowKey] = useState({ chat: false, embed: false });
+  const [activeSection, setActiveSection] = useState<SettingsSection>("models");
 
   // 按钮防抖/防重入
   const guard = useActionGuard();
+
+  const scrollToSection = (section: SettingsSection) => {
+    setActiveSection(section);
+    document.getElementById(SETTINGS_SECTION_IDS[section])?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const savedTimer = useRef<number | null>(null);
   const flashSaved = useCallback(() => {
@@ -63,12 +85,22 @@ export default function SettingsPage() {
 
   return (
     <div className="body-settings">
-      <aside className="lnav">
+      <aside className="lnav" aria-label="设置导航">
         <h3>配置</h3>
-        <button className="lnav-item on"><I.Chip />模型配置</button>
-        <button className="lnav-item"><I.Vector />向量化 Embedding</button>
-        <button className="lnav-item"><I.Shield />数据与隐私</button>
-        <button className="lnav-item"><I.Alert />关于</button>
+        {SETTINGS_NAV.map((item) => {
+          const isActive = activeSection === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={"lnav-item" + (isActive ? " on" : "")}
+              aria-current={isActive ? "true" : undefined}
+              onClick={() => scrollToSection(item.id)}
+            >
+              {item.icon}{item.label}
+            </button>
+          );
+        })}
       </aside>
 
       <div className="main-settings">
@@ -80,7 +112,7 @@ export default function SettingsPage() {
         )}
 
         {/* Chat */}
-        <div className="card">
+        <div id={SETTINGS_SECTION_IDS.models} className="card settings-section">
           <div className="card-head">
             <h2><span className="ic"><I.Chip /></span>对话模型 Chat</h2>
             <span className="hint">用于回答问题 · 兼容任何 OpenAI API 服务</span>
@@ -128,7 +160,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Embedding */}
-        <div className="card">
+        <div id={SETTINGS_SECTION_IDS.embedding} className="card settings-section">
           <div className="card-head">
             <h2><span className="ic violet"><I.Vector /></span>向量化模型 Embedding</h2>
             <span className="hint">用于文档分块向量化与语义检索</span>
@@ -169,41 +201,41 @@ export default function SettingsPage() {
         {/* 检索增强 RAG v2（可选 · 全部标注开源/费用/依赖） */}
         <div className="card">
           <div className="card-head">
-            <h2><span className="ic"><I.Layers /></span>检索增强 <small style={{fontWeight:400}}>（可全部关闭，关闭即纯向量检索）</small></h2>
-            <span className="hint">默认已开启 · 使用的都是开源模型与本地计算，见各项标注</span>
+            <h2><span className="ic"><I.Layers /></span>检索增强 <small style={{fontWeight:400}}>（可关闭多查询、图谱与重排；基础混合检索始终启用）</small></h2>
+            <span className="hint">多查询与图谱默认开启，Rerank 默认关闭 · 配置缺失自动降级</span>
           </div>
 
-          <div className="field" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 4 }}>
-            <div className={"toggle" + (cfg.options.rewrite ? " on" : "")} onClick={() => patchOptions({ rewrite: !cfg.options.rewrite })}><span className="sw" />多查询改写</div>
-            <span className="key-hint" style={{ margin: 0 }}>把 1 问拆 3 视角检索，减少漏检 · 标注：<b>消耗对话模型少量 Token</b>（每次提问 ≈300~500 token，DeepSeek 约 ¥0.001）· 需填对话模型</span>
+          <div className="rag-option-row">
+            <div className={"toggle rag-option-toggle" + (cfg.options.rewrite ? " on" : "")} onClick={() => patchOptions({ rewrite: !cfg.options.rewrite })}><span className="sw" />多查询改写</div>
+            <span className="key-hint rag-option-hint">把 1 问拆 3 视角检索，减少漏检 · 标注：<b>消耗对话模型少量 Token</b>（每次提问 ≈300~500 token，DeepSeek 约 ¥0.001）· 需填对话模型</span>
           </div>
 
-          <div className="field" style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 4 }}>
-            <div className={"toggle" + (cfg.options.graph ? " on" : "")} onClick={() => patchOptions({ graph: !cfg.options.graph })}><span className="sw" />图谱增强（实体/关系索引与检索）</div>
-            <span className="key-hint" style={{ margin: 0 }}>上传/重索引时抽取实体关系，提升跨文档对比与全局问答 · 标注：<b>抽取消耗对话/索引模型 Token</b>（100 页 ≈¥1~2 DeepSeek；配下方本机 Ollama 则 ¥0）；查询期零成本</span>
+          <div className="rag-option-row">
+            <div className={"toggle rag-option-toggle" + (cfg.options.graph ? " on" : "")} onClick={() => patchOptions({ graph: !cfg.options.graph })}><span className="sw" />图谱增强（实体/关系索引与检索）</div>
+            <span className="key-hint rag-option-hint">上传/重索引时抽取实体关系，提升跨文档对比与全局问答 · 标注：<b>抽取消耗对话/索引模型 Token</b>（100 页 ≈¥1~2 DeepSeek；配下方本机 Ollama 则 ¥0）；查询期零成本</span>
           </div>
 
-          <div className="row" style={{ alignItems: "flex-end" }}>
-            <div className="field" style={{ flex: 1 }}>
+          <div className="row rag-field-row rag-field-row--index">
+            <div className="field">
               <label>图谱抽取模型（可选，默认用对话模型）</label>
               <div className="input"><I.Chip /><input value={cfg.index.model} placeholder="如 qwen2.5（Ollama） 或留空" onChange={(e) => patchIndex({ model: e.target.value })} /></div>
             </div>
-            <div className="field" style={{ flex: 1.6 }}>
+            <div className="field">
               <label>Base URL</label>
-              <div className="input"><I.Globe /><input value={cfg.index.baseUrl} placeholder="留空=对话模型；Ollama 填 http://localhost:11434/v1" onChange={(e) => patchIndex({ baseUrl: e.target.value })} /></div>
+              <div className="input"><I.Globe /><input value={cfg.index.baseUrl} placeholder="留空=对话模型；Ollama: http://localhost:11434/v1" onChange={(e) => patchIndex({ baseUrl: e.target.value })} /></div>
             </div>
-            <div className="field" style={{ flex: 1 }}>
+            <div className="field field--full">
               <label>API Key</label>
               <div className="input"><I.Key /><input type="password" value={cfg.index.apiKey} placeholder="留空=对话模型" onChange={(e) => patchIndex({ apiKey: e.target.value })} /></div>
             </div>
           </div>
           <p className="key-hint"><I.Lock size={11} />标注：留空 = 复用「对话模型」抽取（会消耗其 Token，本机 Ollama 全免费）。Key 仅存本机，随请求头发送。</p>
 
-          <div className="field" style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 10, marginBottom: 4 }}>
-            <div className={"toggle" + (cfg.rerank.enabled ? " on" : "")} onClick={() => patchRerank({ enabled: !cfg.rerank.enabled })}><span className="sw" />二次重排 Rerank</div>
-            <span className="key-hint" style={{ margin: 0 }}>对检索结果做交叉编码精排 · 标注：<b>免费开源 bge-reranker-v2-m3</b>（硅基流动免费额度 / 本地兼容服务）；失败自动回退融合排序</span>
+          <div className="rag-option-row rag-option-row--spaced">
+            <div className={"toggle rag-option-toggle" + (cfg.rerank.enabled ? " on" : "")} onClick={() => patchRerank({ enabled: !cfg.rerank.enabled })}><span className="sw" />二次重排 Rerank</div>
+            <span className="key-hint rag-option-hint">对检索结果做交叉编码精排 · 标注：<b>免费开源 bge-reranker-v2-m3</b>（硅基流动免费额度 / 本地兼容服务）；失败自动回退融合排序</span>
           </div>
-          <div className="row">
+          <div className="row rag-field-row">
             <div className="field">
               <label>模型名称</label>
               <div className="input"><I.Chip /><input value={cfg.rerank.model} onChange={(e) => patchRerank({ model: e.target.value })} /></div>
@@ -212,19 +244,31 @@ export default function SettingsPage() {
               <label>Base URL（POST /rerank 兼容）</label>
               <div className="input"><I.Globe /><input value={cfg.rerank.baseUrl} placeholder="https://api.siliconflow.cn/v1" onChange={(e) => patchRerank({ baseUrl: e.target.value })} /></div>
             </div>
-            <div className="field">
+            <div className="field field--full">
               <label>API Key</label>
               <div className="input"><I.Key /><input type="password" value={cfg.rerank.apiKey} placeholder="sk-..." onChange={(e) => patchRerank({ apiKey: e.target.value })} /></div>
             </div>
           </div>
         </div>
 
-        {/* 隐私 */}
-        <div className="about-card">
+        {/* 数据与隐私 */}
+        <div id={SETTINGS_SECTION_IDS.privacy} className="card settings-section">
+          <div className="card-head">
+            <h2><span className="ic"><I.Shield /></span>数据与隐私</h2>
+            <span className="hint">本地优先 · 服务端不持久化密钥</span>
+          </div>
+          <div className="privacy-list">
+            <p className="privacy-item"><I.Lock /><span><b>API Key</b> 仅保存在当前浏览器的 localStorage，请求时通过请求头瞬时传递，服务端不会持久化。</span></p>
+            <p className="privacy-item"><I.Shield /><span><b>文档数据</b> 在 Cloudflare 部署时存储于你的专属 D1/R2；本地 / Docker 模式下全部数据留在你的设备。</span></p>
+          </div>
+        </div>
+
+        {/* 关于 */}
+        <div id={SETTINGS_SECTION_IDS.about} className="about-card settings-section">
           <div className="big"><I.Logo /></div>
           <div>
             <h3>DocForge · 轻量 RAG 文档问答</h3>
-            <p>开源 · MIT License。你的 API Key 仅保存在浏览器本地（localStorage），请求时瞬时传递，服务端不持久化任何密钥。部署到 Cloudflare 时，数据存储在你专属的 D1/R2 中，仅你可见；本地/Docker 模式下全部数据在你自己的机器上。</p>
+            <p>开源 · MIT License。提供本地、Docker 与 Cloudflare 三种部署方式，检索增强能力均可独立开关，并在配置缺失时自动回退到纯向量检索。</p>
           </div>
           <div className="ver">v0.1.0<br /><b>MIT</b></div>
         </div>

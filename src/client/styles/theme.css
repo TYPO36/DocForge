@@ -142,7 +142,7 @@ body {
 .input-meta { margin-left: 6px; font-size: 11px; color: var(--dim); }
 
 /* ===== 文档库页 ===== */
-.content { flex: 1; padding: 30px 36px 60px; max-width: 1120px; width: 100%; margin: 0 auto; overflow-y: auto; }
+.content { flex: 1; padding: 28px clamp(20px, 2vw, 32px) 60px; max-width: none; width: 100%; margin: 0; overflow-y: auto; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 24px; gap: 20px; flex-wrap: wrap; }
 .page-head h1 { font-size: 25px; font-weight: 700; letter-spacing: -.5px; }
 .page-head h1 small { font-size: 13px; color: var(--dim); font-weight: 400; margin-left: 12px; }
@@ -221,7 +221,7 @@ body {
 .err-msg svg { width: 12px; height: 12px; flex-shrink: 0; margin-top: 1.5px; }
 
 /* ===== 设置页 ===== */
-.body-settings { flex: 1; display: flex; max-width: 1030px; width: 100%; margin: 0 auto; padding: 28px 20px 70px; gap: 28px; overflow-y: auto; }
+.body-settings { flex: 1; display: flex; max-width: none; width: 100%; margin: 0; padding: 28px clamp(20px, 2vw, 32px) 70px; gap: 28px; overflow-y: auto; }
 .lnav { width: 190px; flex-shrink: 0; }
 .lnav h3 { font-size: 11px; color: var(--dim); letter-spacing: 1.1px; margin-bottom: 10px; padding-left: 10px; text-transform: uppercase; font-weight: 600; }
 .lnav-item { display: flex; align-items: center; gap: 10px; padding: 9.5px 11px; border-radius: 8px; font-size: 13px; color: var(--dim); cursor: pointer; margin-bottom: 2px; border: none; background: transparent; width: 100%; text-align: left; transition: .12s; font-family: inherit; }
@@ -229,6 +229,16 @@ body {
 .lnav-item:hover { color: var(--text); background: var(--hover); }
 .lnav-item.on { color: var(--accent); background: #eef4ff; font-weight: 600; }
 .main-settings { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.settings-section { scroll-margin-top: 24px; }
+.rag-option-row { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-bottom: 10px; }
+.rag-option-row--spaced { margin-top: 14px; }
+.rag-option-toggle { min-width: max-content; white-space: nowrap; }
+.key-hint.rag-option-hint { display: block; min-width: 0; max-width: 100%; margin: 0; line-height: 1.7; }
+.row.rag-field-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px 15px; }
+.row.rag-field-row--index { grid-template-columns: minmax(258px, 1fr) minmax(186px, 1fr); }
+.row.rag-field-row .field { min-width: 0; margin-bottom: 0; }
+.row.rag-field-row .field label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.rag-field-row .field--full { grid-column: 1 / -1; }
 .card { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .card-head h2 { font-size: 15px; font-weight: 650; display: flex; align-items: center; gap: 10px; }
@@ -272,6 +282,10 @@ body {
 .about-card p { font-size: 12px; color: var(--dim); margin-top: 4px; line-height: 1.7; max-width: 580px; }
 .about-card .ver { margin-left: auto; text-align: right; font-size: 11px; color: var(--dim); flex-shrink: 0; }
 .about-card .ver b { font-size: 16px; color: var(--accent); }
+.privacy-list { display: grid; gap: 12px; }
+.privacy-item { display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; line-height: 1.75; color: var(--dim); }
+.privacy-item svg { width: 14px; height: 14px; color: var(--accent); flex-shrink: 0; margin-top: 2px; }
+.privacy-item b { color: var(--text); font-weight: 650; }
 
 /* ===== 弹窗 ===== */
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 30px; }
@@ -291,7 +305,17 @@ body {
   .content { padding: 20px 16px 50px; }
   .body-settings { flex-direction: column; }
   .lnav { width: 100%; display: flex; gap: 6px; flex-wrap: wrap; }
+  .settings-section { scroll-margin-top: 12px; }
+  .rag-option-row { gap: 4px; }
+  .rag-option-hint { margin-top: 2px; }
+  .row.rag-field-row { grid-template-columns: 1fr; }
   .stats { gap: 16px; }
+}
+
+/* 窄宽度下设置卡片标题与说明分行，避免标题被挤压换行 */
+@media (max-width: 900px) {
+  .main-settings .card-head { flex-wrap: wrap; align-items: flex-start; gap: 6px 12px; }
+  .main-settings .card-head .hint { flex-basis: 100%; }
 }
 
 /* ===== API Key 本地自动保存提示 ===== */
