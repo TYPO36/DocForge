@@ -8,6 +8,7 @@ import { embedCfgOf, chatCfgOf, indexCfgOf, optionsOf, graphProfileOf } from "..
 import { validateEmbedConfig, validateFileName, validateOptionalModelConfig } from "../services/requestValidation";
 import { processDocument, type ProcessDocumentResult, type DocType } from "../services/documentProcessor";
 import { detachedScheduler, type TaskScheduler } from "../services/taskScheduler";
+import type { VectorIndex } from "../services/vectorIndex";
 import { randomUUID } from "node:crypto";
 
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB ?? 20);
@@ -25,9 +26,17 @@ function fileTypeOf(name: string): "pdf" | "docx" | "txt" | null {
  * 并直接删除本地/对象存储中留存的原始文件（docs/<id>/<name>）。
  * 幂等：文档不存在时返回 false，不报错。
  */
-async function purgeDocument(storage: Storage, id: string): Promise<boolean> {
+async function purgeDocument(storage: Storage, id: string, vectorIndex: VectorIndex | null = null): Promise<boolean> {
   const doc = await storage.getDocument(id);
   if (!doc) return false;
+  // 先按分块 ID 清掉远程向量（失败不影响本地删除）
+  if (vectorIndex) {
+    const rows = await storage.listChunksByDoc(id).catch(() => []);
+    if (rows.length > 0) {
+      await vectorIndex.remove(rows.map((row) => row.id)).catch((error) =>
+        console.warn("[documents] 清理远程向量失败:", error instanceof Error ? error.message : error));
+    }
+  }
   await storage.deleteChunksByDoc(id);
   await storage.deleteGraphByDoc(id);
   await storage.deleteDocument(id);
@@ -50,7 +59,7 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-export function documentsRoutes(storage: Storage, scheduler: TaskScheduler = detachedScheduler) {
+export function documentsRoutes(storage: Storage, scheduler: TaskScheduler = detachedScheduler, vectorIndex: VectorIndex | null = null) {
   const app = new Hono<{ Variables: { storage: Storage } }>();
 
   // 上传并建立索引（含可选的图谱抽取）
@@ -109,6 +118,7 @@ export function documentsRoutes(storage: Storage, scheduler: TaskScheduler = det
               contentType: file.type || "application/octet-stream",
               embedCfg,
               graph: { enabled: opts.graph, profile },
+              vectorIndex,
               onProgress: (progress) => emit({ type: "stage", ...progress }),
             }));
           } catch (error) {
@@ -162,7 +172,7 @@ export function documentsRoutes(storage: Storage, scheduler: TaskScheduler = det
     if (ids.length === 0) return c.json({ error: "未指定要删除的文档（ids 不能为空）" }, 400);
     let deleted = 0;
     for (const id of ids) {
-      if (await purgeDocument(storage, id)) deleted++;
+      if (await purgeDocument(storage, id, vectorIndex)) deleted++;
     }
     return c.json({ ok: true, deleted });
   });
@@ -172,7 +182,7 @@ export function documentsRoutes(storage: Storage, scheduler: TaskScheduler = det
     const docs = await storage.listDocuments();
     let deleted = 0;
     for (const d of docs) {
-      if (await purgeDocument(storage, d.id)) deleted++;
+      if (await purgeDocument(storage, d.id, vectorIndex)) deleted++;
     }
     return c.json({ ok: true, deleted });
   });
@@ -220,6 +230,7 @@ export function documentsRoutes(storage: Storage, scheduler: TaskScheduler = det
           embedCfg,
           graph: { enabled: opts.graph, profile },
           replaceExisting: true,
+          vectorIndex,
         }));
       } catch (error) {
         deferred.reject(error);

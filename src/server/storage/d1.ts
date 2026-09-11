@@ -15,6 +15,8 @@ export interface CfBindings {
   DB: D1Database;
   /** R2 可选：未绑定（账号未启用 R2）时降级为不持久化原文件，索引/问答不受影响 */
   FILES?: R2Bucket;
+  /** Vectorize 可选：绑定后由 Cloudflare 承担向量召回，未绑定时在本地计算余弦 */
+  VECTORIZE?: VectorizeIndex;
 }
 
 export class D1Storage implements Storage {

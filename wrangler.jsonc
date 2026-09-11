@@ -10,5 +10,11 @@
   ],
   // R2（原文件存储）暂未绑定：账号启用 R2 后恢复此段并执行
   //   npx wrangler r2 bucket create docforge-files
+  // Vectorize（可选，向量检索加速）启用步骤：
+  //   1) npx wrangler vectorize create docforge-vectors --dimensions=<与 Embedding 输出一致> --metric=cosine
+  //   2) 取消下面注释并重新部署
+  // "vectorize": [
+  //   { "binding": "VECTORIZE", "index_name": "docforge-vectors" }
+  // ],
   "observability": { "enabled": true }
 }

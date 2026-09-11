@@ -131,6 +131,22 @@ AI 配置通过请求头传递：x-chat-* / x-embed-*（含 `x-embed-dimension`�
 - 同一文档不会被并发处理两次：重复点击会返回「正在处理中」。
 - 本地/Docker 进程收到退出信号时，会先等待进行中的索引任务收敛（最多 10 秒）再退出。
 
+### 可选：启用 Cloudflare Vectorize 加速检索
+
+默认在 Worker/Docker 进程内计算向量相似度——零额外资源，适合几百个分块的小库。文档规模增长后，可以绑定 Vectorize 把向量召回交给 Cloudflare：
+
+~~~bash
+# 维度必须与 Embedding 模型输出一致（bge-m3=1024、text-embedding-3-small=1536），度量固定 cosine
+npx wrangler vectorize create docforge-vectors --dimensions=1024 --metric=cosine
+~~~
+
+然后在 `wrangler.jsonc` 中取消 `vectorize` 绑定的注释并重新部署。行为说明：
+
+- 未绑定该服务时一切照旧，完全走本地计算。
+- 索引维度（或度量）与当前 Embedding 不一致时，自动回退本地计算并在日志中提示，问答不会不可用。
+- Vectorize 的写入是异步 mutation，刚索引完成的文档可能有短暂时间检不到向量（BM25 关键词通道仍然生效）。
+- 不同 Embedding 配置通过 namespace 隔离，换模型后请重新索引，避免新旧向量混用。
+
 ### 更换 Embedding 后重建索引
 
 文档会记录不含 API Key 的 Embedding 服务地址、模型和实际向量维度标识。切换其中任一项后，文档库会显示「需重建索引」；请逐个点击「重建索引」。全部现有文档均与当前模型不兼容时，问答接口会拒绝检索并明确提示此操作，避免返回看似正常但实际无关的答案。升级前创建的历史文档没有该标识，仍保持兼容，以便平滑迁移。

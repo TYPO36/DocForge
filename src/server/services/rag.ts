@@ -7,6 +7,8 @@ import { keywordScores, tokenizeQuery } from "./bm25";
 import { matchEntityRefs, matchFacts, toRetrievedFacts } from "./graph";
 import { embeddingProfileOf } from "../../shared/embeddingProfile";
 import { decodeVector } from "./vectorCodec";
+import { embeddingProfileKeyOf } from "../../shared/embeddingProfile";
+import type { VectorIndex } from "./vectorIndex";
 
 export interface RagStats {
   variants: string[];
@@ -16,6 +18,8 @@ export interface RagStats {
   compatibleDocuments: number;
   incompatibleDocuments: number;
   scannedChunks: number;
+  /** 本次检索实际使用的向量后端。 */
+  vectorBackend: "local" | "vectorize";
 }
 
 export interface RagResult {
@@ -31,6 +35,8 @@ const MIN_FINAL = 0.18; // 融合总分下限
 const RRF_K = 60;
 const RRF_TOP = 160;
 const WEIGHTS = [1, 0.6, 0.4];
+/** Vectorize 在返回 metadata 时允许的最大 topK（超出会被平台拒绝）。 */
+const REMOTE_VECTOR_TOP_K = 50;
 
 interface Scored {
   idx: number;
@@ -47,7 +53,7 @@ function finalScore(rrfNorm: number, maxCos: number, kwNorm: number, anchor: num
 }
 
 function emptyResult(compatibleDocuments = 0, incompatibleDocuments = 0): RagResult {
-  return { sources: [], facts: [], stats: { variants: [], graphEntityMatches: 0, factCount: 0, reranked: false, compatibleDocuments, incompatibleDocuments, scannedChunks: 0 } };
+  return { sources: [], facts: [], stats: { variants: [], graphEntityMatches: 0, factCount: 0, reranked: false, compatibleDocuments, incompatibleDocuments, scannedChunks: 0, vectorBackend: "local" } };
 }
 
 /**
@@ -62,6 +68,7 @@ export async function runRag(
   rerankCfg: RerankConfig,
   options: RagOptions,
   topK: number,
+  vectorIndex: VectorIndex | null = null,
 ): Promise<RagResult> {
   // 1. 多查询改写（失败/未开 → 单原问，优雅降级）
   let queries = [question];
@@ -123,20 +130,55 @@ export async function runRag(
     return v;
   };
 
-  // 4. 逐 query：向量余弦 + BM25，累积 RRF
+  // 4. 逐 query：向量召回（可选 Vectorize 后端）+ BM25，累积 RRF
   const maxCos = new Array<number>(n).fill(0);
   const kwRaw = new Array<number>(n).fill(0);
   const rrf = new Array<number>(n).fill(0);
   let maxKwGlobal = 0;
-  queries.forEach((q, qi) => {
-    const w = WEIGHTS[qi] ?? 0.4;
-    const qv = qVecs[qi];
-    const cosArr = new Array<number>(n).fill(0);
+  // 远程向量索引：仅在 Embedding 指纹可计算且维度一致时启用，否则回退本地逐块余弦
+  const remoteNamespace = vectorIndex ? embeddingProfileKeyOf(embed, qVecs[0]?.length) : "";
+  const remoteDimension = vectorIndex && remoteNamespace ? await vectorIndex.dimensions() : 0;
+  const queryDimension = qVecs[0]?.length ?? 0;
+  const useRemote = !!vectorIndex && !!remoteNamespace && (remoteDimension === 0 || remoteDimension === queryDimension);
+  if (vectorIndex && remoteNamespace && !useRemote) {
+    console.warn(`[rag] Vectorize 维度 ${remoteDimension} 与当前 Embedding 维度 ${queryDimension} 不一致，回退本地向量检索`);
+  }
+  const idxById = new Map<string, number>();
+  if (useRemote) for (const { idx, row } of active) idxById.set(row.id, idx);
+  // 实际走通远程召回的查询数：用于遥测真实后端，而不是"尝试过"的后端
+  let remoteHitQueries = 0;
+
+  // 本地逐块余弦：无远程索引、或远程查询失败时使用
+  const localCosine = (qv: number[] | undefined, cosArr: number[]): void => {
     for (const { idx } of active) {
       const v = vecOf(idx);
       const c = v && qv ? cosine(qv, v) : 0;
       cosArr[idx] = c;
       if (c > maxCos[idx]) maxCos[idx] = c;
+    }
+  };
+
+  for (let qi = 0; qi < queries.length; qi++) {
+    const q = queries[qi]!;
+    const w = WEIGHTS[qi] ?? 0.4;
+    const qv = qVecs[qi];
+    const cosArr = new Array<number>(n).fill(0);
+    if (useRemote && qv) {
+      try {
+        const matches = await vectorIndex!.query(qv, { topK: REMOTE_VECTOR_TOP_K, namespace: remoteNamespace });
+        remoteHitQueries++;
+        for (const match of matches) {
+          const idx = idxById.get(match.id);
+          if (idx === undefined) continue; // 已删除或不在当前兼容集合中的向量，忽略
+          cosArr[idx] = match.score;
+          if (match.score > maxCos[idx]) maxCos[idx] = match.score;
+        }
+      } catch (error) {
+        console.warn("[rag] Vectorize 查询失败，本次回退本地向量检索:", error instanceof Error ? error.message : error);
+        localCosine(qv, cosArr);
+      }
+    } else {
+      localCosine(qv, cosArr);
     }
     active.map(({ idx }) => idx).sort((a, b) => cosArr[b] - cosArr[a]).slice(0, RRF_TOP).forEach((idx, rank) => {
       rrf[idx] += w / (RRF_K + rank + 1);
@@ -153,7 +195,7 @@ export async function runRag(
         rrf[idx] += w / (RRF_K + rank + 1);
       });
     }
-  });
+  }
   const maxRrf = Math.max(...active.map(({ idx }) => rrf[idx]), 1e-6);
   const kwNormArr = new Array<number>(n).fill(0);
   if (maxKwGlobal > 0) for (const { idx } of active) kwNormArr[idx] = Math.min(1, kwRaw[idx] / maxKwGlobal);
@@ -246,6 +288,7 @@ export async function runRag(
       compatibleDocuments: metaByDoc.size,
       incompatibleDocuments,
       scannedChunks: active.length,
+      vectorBackend: remoteHitQueries === queries.length && queries.length > 0 ? "vectorize" : "local",
     },
   };
 }

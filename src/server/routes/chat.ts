@@ -6,12 +6,13 @@ import { runRag } from "../services/rag";
 import { chatCfgOf, embedCfgOf, rerankCfgOf, optionsOf } from "../services/reqCfg";
 import { buildSystemPrompt, buildMessages } from "../services/prompts";
 import { parseChatRequest, validateChatConfig, validateEmbedConfig, validateOptionalModelConfig } from "../services/requestValidation";
+import type { VectorIndex } from "../services/vectorIndex";
 
 function sseEncode(event: string, data: unknown): string {
   return "event: " + event + "\ndata: " + JSON.stringify(data) + "\n\n";
 }
 
-export function chatRoutes(storage: Storage) {
+export function chatRoutes(storage: Storage, vectorIndex: VectorIndex | null = null) {
   const app = new Hono<{ Variables: { storage: Storage } }>();
 
   app.post("/", async (c) => {
@@ -44,7 +45,7 @@ export function chatRoutes(storage: Storage) {
     try {
       const startedAt = Date.now();
       // RAG v2：改写 → 混合检索（向量+BM25+RRF）→ 图谱通道 → 父子窗口 →（可选 rerank）
-      const result = await runRag(storage, question, chatCfg, embedCfg, rerankCfg, opts, topK);
+      const result = await runRag(storage, question, chatCfg, embedCfg, rerankCfg, opts, topK, vectorIndex);
       if (result.stats.compatibleDocuments === 0 && result.stats.incompatibleDocuments > 0) {
         return c.json({ error: "当前 Embedding 配置与已索引文档不一致，请在文档库逐个执行“重新索引”后再提问" }, 409);
       }
@@ -57,6 +58,7 @@ export function chatRoutes(storage: Storage) {
         variants: result.stats.variants.length,
         graph: opts.graph,
         reranked: result.stats.reranked,
+        vectorBackend: result.stats.vectorBackend,
       }));
       const citations = toCitations(result.sources);
       const docRows = await storage.listDocuments();

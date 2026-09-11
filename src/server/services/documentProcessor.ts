@@ -11,8 +11,9 @@ import type { ChatConfig, EmbedConfig, IndexConfig } from "../../shared/types";
 import { parseFile } from "./parser";
 import { chunkText } from "./chunker";
 import { embedTexts, AiError } from "./ai";
+import type { VectorIndex } from "./vectorIndex";
 import { buildDocGraph } from "./graph";
-import { embeddingProfileOf } from "../../shared/embeddingProfile";
+import { embeddingProfileKeyOf, embeddingProfileOf } from "../../shared/embeddingProfile";
 import { encodeVector } from "./vectorCodec";
 import { randomUUID } from "node:crypto";
 
@@ -55,6 +56,8 @@ export interface ProcessDocumentInput {
   };
   /** 写入前是否清空该文档已有分块（重索引场景），默认 false。 */
   replaceExisting?: boolean;
+  /** 可选的远程向量索引（Cloudflare Vectorize）；为空时只写本地分块向量。 */
+  vectorIndex?: VectorIndex | null;
   /** 进度回调；回调抛出的异常不影响主管线。 */
   onProgress?: (progress: ProcessProgress) => void;
 }
@@ -135,8 +138,30 @@ export async function processDocument(input: ProcessDocumentInput): Promise<Proc
 
     report({ stage: "finalize", pct: 86, label: "写入向量索引…" });
     // 重索引：向量已就绪后再替换旧分块，尽量缩短"无可用索引"的窗口
-    if (input.replaceExisting) await storage.deleteChunksByDoc(docId);
+    if (input.replaceExisting) {
+      const previousRows = await storage.listChunksByDoc(docId);
+      await storage.deleteChunksByDoc(docId);
+      if (input.vectorIndex && previousRows.length > 0) {
+        await input.vectorIndex.remove(previousRows.map((row) => row.id)).catch((error) =>
+          console.warn("[processor] 清理旧向量失败（不影响本地索引）:", error instanceof Error ? error.message : error));
+      }
+    }
     await storage.insertChunks(rows);
+
+    // 可选：把向量同步到远程索引；失败不阻塞本地索引，检索会自动回退本地计算
+    if (input.vectorIndex) {
+      const namespace = embeddingProfileKeyOf(embedCfg, vectors[0]?.length);
+      if (namespace) {
+        try {
+          await input.vectorIndex.upsert(
+            rows.map((row, index) => ({ id: row.id, docId, seq: row.seq, vector: vectors[index] ?? [] })),
+            namespace,
+          );
+        } catch (error) {
+          console.warn("[processor] Vectorize 写入失败，检索将回退本地向量计算:", error instanceof Error ? error.message : error);
+        }
+      }
+    }
 
     // 图谱抽取失败只标记状态，不影响向量检索可用性
     let graphStatus: GraphOutcomeStatus = "none";
