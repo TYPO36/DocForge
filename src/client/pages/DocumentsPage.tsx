@@ -4,6 +4,7 @@ import { ViewerModal } from "../components/ViewerModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import type { DocumentMeta } from "../../shared/types";
 import { loadConfig, graphIndexModel } from "../lib/config";
+import { embeddingProfileOf } from "../../shared/embeddingProfile";
 import { useActionGuard } from "../lib/useActionGuard";
 import { fetchDocuments, uploadDocumentStreaming, deleteDocument, deleteManyDocuments, deleteAllDocuments, reindexDocument, buildGraph, formatBytes, type UploadStageEvent } from "../lib/api";
 
@@ -31,6 +32,7 @@ type ConfirmReq =
   | { kind: "all" };
 
 export default function DocumentsPage() {
+  const activeEmbeddingProfile = embeddingProfileOf(loadConfig().embed);
   const [docs, setDocs] = useState<DocumentMeta[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -384,6 +386,7 @@ export default function DocumentsPage() {
 
       <div className="grid">
         {filtered.map((d) => {
+            const needsReindex = d.status === "ready" && !!d.embeddingProfile && d.embeddingProfile !== activeEmbeddingProfile;
           const picked = sel.has(d.id);
           return (
           <div key={d.id} className={"card" + (picked ? " sel" : "")}>
@@ -406,6 +409,7 @@ export default function DocumentsPage() {
                   {d.graphStatus === "ready" && !!d.entityCount && <span className="gmeta" style={{ color: "var(--ok,#0a7a3d)" }}>图谱 {d.entityCount}</span>}
                   {d.graphStatus === "failed" && <span className="gmeta" style={{ color: "#c0392b" }}>图谱失败</span>}
                   {d.graphStatus === "none" && d.status === "ready" && <span className="gmeta" style={{ color: "var(--dim)" }}>纯向量</span>}
+                  {needsReindex && <span className="gmeta" style={{ color: "#c07800" }}>需重建索引</span>}
                 </div>
               </div>
               {d.status === "ready" && <span className="st st-ready">就绪</span>}
@@ -417,7 +421,7 @@ export default function DocumentsPage() {
             )}
             <div className="card-actions">
               <button className="act primary" disabled={busyId === d.id} title="查看原始文档：PDF 内嵌预览，DOCX/TXT 展示提取出的文本，用于核对 AI 回答的出处" onClick={() => guard("view:" + d.id, openViewer, d)}><I.Eye size={12} />打开原文</button>
-              <button className="act" disabled={busyId === d.id || d.status === "processing"} title="重新读取留存的原始文件，重新分块并调用 Embedding 重建向量索引（更换了向量模型或上次索引失败后可重试）" onClick={() => guard("reindex:" + d.id, reindex, d)}><I.Refresh size={12} />重新索引</button>
+              <button className="act" disabled={busyId === d.id || d.status === "processing"} title="重新读取留存的原始文件，重新分块并调用 Embedding 重建向量索引（更换了向量模型或上次索引失败后可重试）" onClick={() => guard("reindex:" + d.id, reindex, d)}><I.Refresh size={12} />{needsReindex ? "重建索引" : "重新索引"}</button>
               {d.status === "ready" && (d.graphStatus === "none" || d.graphStatus === "failed") && (
                 <button className="act" disabled={busyId === d.id} title="为已就绪文档抽取实体/关系建图谱（消耗对话或索引模型 Token），增强跨文档对比与全局问答" onClick={() => guard("graph:" + d.id, doGraph, d)}><I.Layers size={12} />补建图谱</button>
               )}

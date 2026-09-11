@@ -5,12 +5,16 @@ import { embedTexts, retrievalPrefix, rewriteQueries, rerank as callRerank } fro
 import { cosine, buildSources, type RetrievedChunk, type RetrievedFact, type DocMetaLite, type LeafSel } from "./retrieve";
 import { keywordScores, tokenizeQuery } from "./bm25";
 import { matchEntityRefs, matchFacts, toRetrievedFacts } from "./graph";
+import { embeddingProfileOf } from "../../shared/embeddingProfile";
 
 export interface RagStats {
   variants: string[];
   graphEntityMatches: number;
   factCount: number;
   reranked: boolean;
+  compatibleDocuments: number;
+  incompatibleDocuments: number;
+  scannedChunks: number;
 }
 
 export interface RagResult {
@@ -41,8 +45,8 @@ function finalScore(rrfNorm: number, maxCos: number, kwNorm: number, anchor: num
   return 0.45 * rrfNorm + 0.3 * Math.max(maxCos, anchor * 0.5) + 0.2 * kwNorm + 0.05 * Math.min(anchor, 1);
 }
 
-function emptyResult(): RagResult {
-  return { sources: [], facts: [], stats: { variants: [], graphEntityMatches: 0, factCount: 0, reranked: false } };
+function emptyResult(compatibleDocuments = 0, incompatibleDocuments = 0): RagResult {
+  return { sources: [], facts: [], stats: { variants: [], graphEntityMatches: 0, factCount: 0, reranked: false, compatibleDocuments, incompatibleDocuments, scannedChunks: 0 } };
 }
 
 /**
@@ -77,12 +81,21 @@ export async function runRag(
   if (qVecs.length !== queries.length) throw new Error("Embedding 返回数量与查询数不一致");
 
   // 3. 数据装载（只取 ready 文档）
-  const rows = await storage.allChunks();
-  if (rows.length === 0) return emptyResult();
   const docs = await storage.listDocuments();
+  const activeProfile = embeddingProfileOf(embed, qVecs[0]?.length);
   const metaByDoc = new Map<string, DocMetaLite>();
-  for (const d of docs) if (d.status === "ready") metaByDoc.set(d.id, { name: d.name, type: d.type });
-  if (metaByDoc.size === 0) return emptyResult();
+  let incompatibleDocuments = 0;
+  for (const d of docs) {
+    if (d.status !== "ready") continue;
+    if (d.embeddingProfile && d.embeddingProfile !== activeProfile) {
+      incompatibleDocuments++;
+      continue;
+    }
+    metaByDoc.set(d.id, { name: d.name, type: d.type });
+  }
+  if (metaByDoc.size === 0) return emptyResult(0, incompatibleDocuments);
+  const rows = await storage.allChunks();
+  if (rows.length === 0) return emptyResult(metaByDoc.size, incompatibleDocuments);
   const n = rows.length;
   const rowsByDoc = new Map<string, ChunkRow[]>();
   const byKey = new Map<string, number>();
@@ -149,7 +162,9 @@ export async function runRag(
   let graphEntityMatches = 0;
   if (options.graph) {
     try {
-      const [ents, rels] = await Promise.all([storage.allEntities(), storage.allRelations()]);
+      const graph = await storage.graphByDocIds([...metaByDoc.keys()]);
+      const ents = graph.entities;
+      const rels = graph.relations;
       const matches = matchEntityRefs(question, ents);
       graphEntityMatches = matches.length;
       for (const m of matches.slice(0, 4)) {
@@ -221,6 +236,14 @@ export async function runRag(
   return {
     sources,
     facts,
-    stats: { variants, graphEntityMatches, factCount: facts.length, reranked },
+    stats: {
+      variants,
+      graphEntityMatches,
+      factCount: facts.length,
+      reranked,
+      compatibleDocuments: metaByDoc.size,
+      incompatibleDocuments,
+      scannedChunks: active.length,
+    },
   };
 }

@@ -44,7 +44,7 @@ export interface Storage {
   createDocument(doc: NewDocument): Promise<void>;
   listDocuments(): Promise<DocumentRow[]>;
   getDocument(id: string): Promise<DocumentRow | undefined>;
-  updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount">>): Promise<void>;
+  updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount" | "embeddingProfile">>): Promise<void>;
   deleteDocument(id: string): Promise<void>;
   insertChunks(rows: ChunkRow[]): Promise<void>;
   listChunksByDoc(docId: string): Promise<ChunkRow[]>;
@@ -66,5 +66,7 @@ export interface Storage {
   deleteGraphByDoc(docId: string): Promise<void>;
   allEntities(): Promise<EntityRecord[]>;
   allRelations(): Promise<RelationRecord[]>;
+  /** 只查询指定文档的图谱记录，避免问答时加载不参与检索的历史图谱。 */
+  graphByDocIds(docIds: string[]): Promise<{ entities: EntityRecord[]; relations: RelationRecord[] }>;
   updateGraphState(id: string, patch: GraphStatePatch): Promise<void>;
 }

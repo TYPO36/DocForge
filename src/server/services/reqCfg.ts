@@ -4,6 +4,10 @@ import { HDR } from "../../shared/types";
 
 const h = (c: Context, name: string) => c.req.header(name) ?? "";
 const isOn = (v: string) => v === "1" || v.toLowerCase() === "true";
+const boundedDimension = (v: string): number => {
+  const parsed = Number(v);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 16_384 ? parsed : 0;
+};
 
 export function chatCfgOf(c: Context): ChatConfig {
   return {
@@ -21,7 +25,7 @@ export function embedCfgOf(c: Context): EmbedConfig {
     baseUrl: h(c, HDR.embedBase) ?? "",
     apiKey: h(c, HDR.embedKey) ?? "",
     model: h(c, HDR.embedModel) ?? "",
-    dimension: 0,
+    dimension: boundedDimension(h(c, HDR.embedDimension)),
   };
 }
 

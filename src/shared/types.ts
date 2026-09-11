@@ -70,6 +70,8 @@ export interface DocumentMeta {
   graphStatus?: DocGraphStatus;
   entityCount?: number;
   graphError?: string | null;
+  /** 文档索引使用的非敏感 Embedding 配置标识；为空表示历史文档尚未记录。 */
+  embeddingProfile?: string | null;
 }
 
 export interface ChunkInfo {
@@ -115,6 +117,7 @@ export const HDR = {
   embedBase: "x-embed-base-url",
   embedKey: "x-embed-api-key",
   embedModel: "x-embed-model",
+  embedDimension: "x-embed-dimension",
   // —— RAG v2：可选配置头（未填则回退/关闭对应能力）
   indexBase: "x-index-base-url",     // 图谱抽取专用模型（默认回退 chat）
   indexKey: "x-index-api-key",

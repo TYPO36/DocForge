@@ -13,6 +13,7 @@ export const documents = sqliteTable("documents", {
   graphStatus: text("graph_status").notNull().default("none"),
   graphError: text("graph_error"),
   entityCount: integer("entity_count").notNull().default(0),
+  embeddingProfile: text("embedding_profile"),
 });
 
 export const chunks = sqliteTable("chunks", {

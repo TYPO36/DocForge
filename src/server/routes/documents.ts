@@ -7,6 +7,8 @@ import { chunkText } from "../services/chunker";
 import { embedTexts, AiError } from "../services/ai";
 import { buildDocGraph } from "../services/graph";
 import { embedCfgOf, chatCfgOf, indexCfgOf, optionsOf, graphProfileOf } from "../services/reqCfg";
+import { validateEmbedConfig, validateFileName, validateOptionalModelConfig } from "../services/requestValidation";
+import { embeddingProfileOf } from "../../shared/embeddingProfile";
 import { randomUUID } from "node:crypto";
 
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB ?? 20);
@@ -53,28 +55,34 @@ export function documentsRoutes(storage: Storage) {
   // 前置校验失败（缺配置/无文件/超限/类型不支持）仍返回普通 JSON 错误，不会进入流。
   app.post("/", async (c) => {
     const embedCfg: EmbedConfig = embedCfgOf(c);
-    if (!embedCfg.baseUrl || !embedCfg.apiKey || !embedCfg.model) {
-      return c.json({ error: "缺少 Embedding 配置（请在设置页填写或在请求头传递 x-embed-*）" }, 400);
-    }
+    const embedValidation = validateEmbedConfig(embedCfg);
+    if ("error" in embedValidation) return c.json({ error: "Embedding 配置无效：" + embedValidation.error }, 400);
     // 图谱抽取配置：优先独立索引模型，未配则回退 chat 模型（见设置页标注）
     const chatCfg = chatCfgOf(c);
     const indexCfg = indexCfgOf(c);
     const profile = graphProfileOf(chatCfg, indexCfg);
     const opts = optionsOf(c, { rewrite: true, graph: true, rerank: false });
+    if (opts.graph && profile) {
+      const graphValidation = validateOptionalModelConfig(profile);
+      if ("error" in graphValidation) return c.json({ error: "图谱模型配置无效：" + graphValidation.error }, 400);
+    }
 
     const form = await c.req.parseBody();
     const file = form["file"];
     if (!(file instanceof File)) return c.json({ error: "未找到上传文件（字段名 file）" }, 400);
+    const nameValidation = validateFileName(file.name);
+    if ("error" in nameValidation) return c.json({ error: nameValidation.error }, 400);
+    const fileName = nameValidation.value;
     if (file.size > MAX_MB * 1024 * 1024) {
       return c.json({ error: "文件超过 " + MAX_MB + "MB 限制" }, 413);
     }
-    const type = fileTypeOf(file.name);
+    const type = fileTypeOf(fileName);
     if (!type) return c.json({ error: "仅支持 PDF / DOCX / TXT（.doc 请先另存为 .docx）" }, 400);
 
     const docId = randomUUID();
     const buf = await file.arrayBuffer();
     // 先落库（processing），文档库立即可见，处理失败再回滚为 failed
-    await storage.createDocument({ id: docId, name: file.name, type, size: file.size });
+    await storage.createDocument({ id: docId, name: fileName, type, size: file.size });
 
     const enc = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
@@ -87,7 +95,7 @@ export function documentsRoutes(storage: Storage) {
             await storage.updateDocument(docId, { status: "failed", error: msg });
             await storage.deleteChunksByDoc(docId);
             await storage.deleteGraphByDoc(docId).catch(() => {});
-            await storage.deleteFile("docs/" + docId + "/" + file.name).catch(() => {});
+            await storage.deleteFile("docs/" + docId + "/" + fileName).catch(() => {});
           } catch { /* 忽略清理错误 */ }
           emit({ type: "error", message: msg, id: docId });
         };
@@ -129,7 +137,7 @@ export function documentsRoutes(storage: Storage) {
           }));
           // 解析/向量化期间文档可能已被删除：放弃提交，避免留下孤儿块与原文件
           if (!(await storage.getDocument(docId))) {
-            await storage.deleteFile("docs/" + docId + "/" + file.name).catch(() => {});
+            await storage.deleteFile("docs/" + docId + "/" + fileName).catch(() => {});
             emit({ type: "error", message: "文档已被删除", id: docId });
             return;
           }
@@ -160,11 +168,16 @@ export function documentsRoutes(storage: Storage) {
           } else {
             await storage.deleteGraphByDoc(docId).catch(() => {});
           }
-          await storage.updateDocument(docId, { status: "ready", chunkCount: rows.length, error: null });
+          await storage.updateDocument(docId, {
+            status: "ready",
+            chunkCount: rows.length,
+            error: null,
+            embeddingProfile: embeddingProfileOf(embedCfg, vectors[0]?.length),
+          });
           await storage.updateGraphState(docId, { graphStatus: graph.status, graphError: graph.error ?? null, entityCount: graph.entityCount });
           // 留存原文件
-          await storage.putFile("docs/" + docId + "/" + file.name, buf, file.type || "application/octet-stream");
-          emit({ type: "done", id: docId, name: file.name, chunks: rows.length, pages: parsed.pageCount ?? null, graphStatus: graph.status, entityCount: graph.entityCount });
+          await storage.putFile("docs/" + docId + "/" + fileName, buf, file.type || "application/octet-stream");
+          emit({ type: "done", id: docId, name: fileName, chunks: rows.length, pages: parsed.pageCount ?? null, graphStatus: graph.status, entityCount: graph.entityCount });
         } catch (e) {
           const msg = e instanceof AiError ? e.message : e instanceof Error ? e.message : "解析失败";
           await cleanupFail(msg);
@@ -189,6 +202,7 @@ export function documentsRoutes(storage: Storage) {
       id: d.id, name: d.name, type: d.type, size: d.size,
       status: d.status, chunkCount: d.chunkCount, error: d.error, createdAt: new Date(d.createdAt).toISOString(),
       graphStatus: d.graphStatus ?? "none", entityCount: d.entityCount ?? 0, graphError: d.graphError ?? null,
+      embeddingProfile: d.embeddingProfile ?? null,
     })));
   });
 
@@ -229,13 +243,16 @@ export function documentsRoutes(storage: Storage) {
     const doc = await storage.getDocument(id);
     if (!doc) return c.json({ error: "文档不存在" }, 404);
     const embedCfg: EmbedConfig = embedCfgOf(c);
-    if (!embedCfg.baseUrl || !embedCfg.apiKey || !embedCfg.model) {
-      return c.json({ error: "缺少 Embedding 配置" }, 400);
-    }
+    const embedValidation = validateEmbedConfig(embedCfg);
+    if ("error" in embedValidation) return c.json({ error: "Embedding 配置无效：" + embedValidation.error }, 400);
     const chatCfg = chatCfgOf(c);
     const indexCfg = indexCfgOf(c);
     const profile = graphProfileOf(chatCfg, indexCfg);
     const opts = optionsOf(c, { rewrite: true, graph: true, rerank: false });
+    if (opts.graph && profile) {
+      const graphValidation = validateOptionalModelConfig(profile);
+      if ("error" in graphValidation) return c.json({ error: "图谱模型配置无效：" + graphValidation.error }, 400);
+    }
     const file = await storage.getFile("docs/" + id + "/" + doc.name);
     if (!file) return c.json({ error: "原始文件不存在，无法重新索引" }, 404);
     // 幂等互斥
@@ -272,7 +289,12 @@ export function documentsRoutes(storage: Storage) {
       } else {
         await storage.deleteGraphByDoc(id).catch(() => {});
       }
-      await storage.updateDocument(id, { status: "ready", chunkCount: rows.length, error: null });
+      await storage.updateDocument(id, {
+        status: "ready",
+        chunkCount: rows.length,
+        error: null,
+        embeddingProfile: embeddingProfileOf(embedCfg, vectors[0]?.length),
+      });
       await storage.updateGraphState(id, { graphStatus: graph.status, graphError: graph.error ?? null, entityCount: graph.entityCount });
       return c.json({ ok: true, chunks: rows.length, graphStatus: graph.status, entityCount: graph.entityCount });
     } catch (e) {
@@ -297,6 +319,8 @@ export function documentsRoutes(storage: Storage) {
     if (!profile) {
       return c.json({ error: "补建图谱需要对话模型或索引模型配置（见设置页）" }, 400);
     }
+    const graphValidation = validateOptionalModelConfig(profile);
+    if ("error" in graphValidation) return c.json({ error: "图谱模型配置无效：" + graphValidation.error }, 400);
     const locked = await storage.beginProcessing(id);
     if (!locked) return c.json({ error: "文档正在处理中，请稍后再试" }, 409);
     try {

@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS documents (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'processing', error TEXT, chunk_count INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
-  graph_status TEXT NOT NULL DEFAULT 'none', graph_error TEXT, entity_count INTEGER NOT NULL DEFAULT 0
+  graph_status TEXT NOT NULL DEFAULT 'none', graph_error TEXT, entity_count INTEGER NOT NULL DEFAULT 0,
+  embedding_profile TEXT
 );
 CREATE TABLE IF NOT EXISTS chunks (
   id TEXT PRIMARY KEY, doc_id TEXT NOT NULL, seq INTEGER NOT NULL,
@@ -59,6 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
     add("graph_status", "graph_status TEXT NOT NULL DEFAULT 'none'");
     add("graph_error", "graph_error TEXT");
     add("entity_count", "entity_count INTEGER NOT NULL DEFAULT 0");
+    add("embedding_profile", "embedding_profile TEXT");
   }
 
   // node:sqlite 返回蛇形列名，映射为驼峰模型
@@ -69,6 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
       graphStatus: (r.graph_status ?? "none") as DocGraphStatus,
       graphError: r.graph_error ?? null,
       entityCount: r.entity_count ?? 0,
+      embeddingProfile: r.embedding_profile ?? null,
     };
   }
   private mapChunk(r: any): ChunkRow {
@@ -91,12 +94,13 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
     const r = this.db.prepare("SELECT * FROM documents WHERE id = ?").get(id) as any;
     return r ? this.mapDoc(r) : undefined;
   }
-  async updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount">>) {
+  async updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount" | "embeddingProfile">>) {
     const sets: string[] = [];
     const vals: (string | number | null)[] = [];
     if (patch.status !== undefined) { sets.push("status = ?"); vals.push(patch.status); }
     if (patch.error !== undefined) { sets.push("error = ?"); vals.push(patch.error); }
     if (patch.chunkCount !== undefined) { sets.push("chunk_count = ?"); vals.push(patch.chunkCount); }
+    if (patch.embeddingProfile !== undefined) { sets.push("embedding_profile = ?"); vals.push(patch.embeddingProfile); }
     if (sets.length === 0) return;
     vals.push(id);
     this.db.prepare("UPDATE documents SET " + sets.join(", ") + " WHERE id = ?").run(...vals);
@@ -165,6 +169,19 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
       docId: r.doc_id, source: r.source, target: r.target, description: r.description ?? "",
     }));
   }
+  async graphByDocIds(docIds: string[]): Promise<{ entities: EntityRecord[]; relations: RelationRecord[] }> {
+    if (docIds.length === 0) return { entities: [], relations: [] };
+    const placeholders = docIds.map(() => "?").join(",");
+    const entityRows = this.db.prepare(`SELECT doc_id, name, type, mentions, chunk_seqs FROM entities WHERE doc_id IN (${placeholders})`).all(...docIds) as any[];
+    const relationRows = this.db.prepare(`SELECT doc_id, source, target, description FROM relations WHERE doc_id IN (${placeholders})`).all(...docIds) as any[];
+    return {
+      entities: entityRows.map((r) => ({
+        docId: r.doc_id, name: r.name, type: r.type ?? "", mentions: r.mentions ?? 1,
+        chunkSeqs: parseChunkSeqs(r.chunk_seqs),
+      })),
+      relations: relationRows.map((r) => ({ docId: r.doc_id, source: r.source, target: r.target, description: r.description ?? "" })),
+    };
+  }
 
   async putFile(key: string, data: ArrayBuffer | Uint8Array, _contentType: string) {
     const p = this.filePath(key);
@@ -194,5 +211,14 @@ CREATE INDEX IF NOT EXISTS idx_relations_doc ON relations(doc_id);
     this.db
       .prepare("UPDATE documents SET status = 'failed', error = ? WHERE status = 'processing'")
       .run("上次处理被异常中断（服务重启），可重新索引或删除后重传");
+  }
+}
+
+function parseChunkSeqs(value: string | null): number[] {
+  try {
+    const parsed = JSON.parse(value ?? "[]");
+    return Array.isArray(parsed) ? parsed.map(Number).filter((item: number) => Number.isFinite(item)) : [];
+  } catch {
+    return [];
   }
 }

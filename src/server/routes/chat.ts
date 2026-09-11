@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import type { Storage } from "../storage/types";
-import type { ChatRequest } from "../../shared/types";
 import { chatStream, AiError } from "../services/ai";
 import { toCitations } from "../services/retrieve";
 import { runRag } from "../services/rag";
 import { chatCfgOf, embedCfgOf, rerankCfgOf, optionsOf } from "../services/reqCfg";
 import { buildSystemPrompt, buildMessages } from "../services/prompts";
+import { parseChatRequest, validateChatConfig, validateEmbedConfig, validateOptionalModelConfig } from "../services/requestValidation";
 
 function sseEncode(event: string, data: unknown): string {
   return "event: " + event + "\ndata: " + JSON.stringify(data) + "\n\n";
@@ -17,20 +17,23 @@ export function chatRoutes(storage: Storage) {
   app.post("/", async (c) => {
     const chatCfg = chatCfgOf(c);
     const embedCfg = embedCfgOf(c);
-    if (!chatCfg.baseUrl || !chatCfg.apiKey || !chatCfg.model) {
-      return c.json({ error: "缺少 Chat 模型配置（请在设置页填写）" }, 400);
-    }
-    if (!embedCfg.baseUrl || !embedCfg.apiKey || !embedCfg.model) {
-      return c.json({ error: "缺少 Embedding 配置（请在设置页填写）" }, 400);
-    }
+    const chatValidation = validateChatConfig(chatCfg);
+    if ("error" in chatValidation) return c.json({ error: "Chat 配置无效：" + chatValidation.error }, 400);
+    const embedValidation = validateEmbedConfig(embedCfg);
+    if ("error" in embedValidation) return c.json({ error: "Embedding 配置无效：" + embedValidation.error }, 400);
     const rerankCfg = rerankCfgOf(c);
     // 设置页默认：多查询改写开 / 图谱检索开 / rerank 关（关闭即回到 v1 纯向量行为）
     const opts = optionsOf(c, { rewrite: true, graph: true, rerank: false });
 
-    const body = (await c.req.json().catch(() => null)) as ChatRequest | null;
-    if (!body || !body.question?.trim()) return c.json({ error: "问题不能为空" }, 400);
-    const question = body.question.trim();
-    const topK = Math.min(Math.max(body.topK ?? 5, 1), 12);
+    if (opts.rerank && rerankCfg.enabled) {
+      const rerankValidation = validateOptionalModelConfig(rerankCfg, true);
+      if ("error" in rerankValidation) return c.json({ error: "Rerank 配置无效：" + rerankValidation.error }, 400);
+    }
+    const requestValidation = parseChatRequest(await c.req.json().catch(() => null));
+    if ("error" in requestValidation) return c.json({ error: requestValidation.error }, 400);
+    const body = requestValidation.value;
+    const question = body.question;
+    const topK = body.topK ?? 5;
     if (body.temperature !== undefined) chatCfg.temperature = body.temperature;
     if (body.maxTokens !== undefined) chatCfg.maxTokens = body.maxTokens;
     // 请求体 options 可覆盖请求头默认（高级用法）
@@ -39,8 +42,22 @@ export function chatRoutes(storage: Storage) {
     if (body.options?.rerank !== undefined) opts.rerank = body.options.rerank;
 
     try {
+      const startedAt = Date.now();
       // RAG v2：改写 → 混合检索（向量+BM25+RRF）→ 图谱通道 → 父子窗口 →（可选 rerank）
       const result = await runRag(storage, question, chatCfg, embedCfg, rerankCfg, opts, topK);
+      if (result.stats.compatibleDocuments === 0 && result.stats.incompatibleDocuments > 0) {
+        return c.json({ error: "当前 Embedding 配置与已索引文档不一致，请在文档库逐个执行“重新索引”后再提问" }, 409);
+      }
+      console.info("[rag] retrieval", JSON.stringify({
+        elapsedMs: Date.now() - startedAt,
+        compatibleDocuments: result.stats.compatibleDocuments,
+        incompatibleDocuments: result.stats.incompatibleDocuments,
+        scannedChunks: result.stats.scannedChunks,
+        sources: result.sources.length,
+        variants: result.stats.variants.length,
+        graph: opts.graph,
+        reranked: result.stats.reranked,
+      }));
       const citations = toCitations(result.sources);
       const docRows = await storage.listDocuments();
       const system = buildSystemPrompt(

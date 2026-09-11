@@ -86,7 +86,12 @@ export function chatHeaders(cfg: ChatConfig): Record<string, string> {
 }
 
 export function embedHeaders(cfg: EmbedConfig): Record<string, string> {
-  return { "x-embed-base-url": cfg.baseUrl, "x-embed-api-key": cfg.apiKey, "x-embed-model": cfg.model };
+  return {
+    "x-embed-base-url": cfg.baseUrl,
+    "x-embed-api-key": cfg.apiKey,
+    "x-embed-model": cfg.model,
+    "x-embed-dimension": String(Math.max(0, Math.floor(cfg.dimension || 0))),
+  };
 }
 
 function indexHeaders(idx: IndexConfig): Record<string, string> {

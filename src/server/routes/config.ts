@@ -3,6 +3,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { ChatConfig, EmbedConfig, TestResult } from "../../shared/types";
 import { HDR } from "../../shared/types";
 import { testChat, testEmbed, AiError } from "../services/ai";
+import { validateChatConfig, validateEmbedConfig } from "../services/requestValidation";
 
 type ProbeResult = { status: ContentfulStatusCode; data: TestResult };
 
@@ -35,10 +36,11 @@ async function runProbe(kind: "chat" | "embed", headers: Headers): Promise<Probe
       baseUrl: headers.get(HDR.embedBase) ?? "",
       apiKey: headers.get(HDR.embedKey) ?? "",
       model: headers.get(HDR.embedModel) ?? "",
-      dimension: 0,
+      dimension: Number(headers.get(HDR.embedDimension) ?? "0"),
     };
-    if (!cfg.baseUrl || !cfg.apiKey || !cfg.model) {
-      const r: TestResult = { ok: false, kind, message: "请先填写 Embedding 的 Base URL / API Key / 模型" };
+    const validation = validateEmbedConfig(cfg);
+    if ("error" in validation) {
+      const r: TestResult = { ok: false, kind, message: "Embedding 配置无效：" + validation.error };
       return { status: 400, data: r };
     }
     try {
@@ -56,8 +58,9 @@ async function runProbe(kind: "chat" | "embed", headers: Headers): Promise<Probe
       model: headers.get(HDR.chatModel) ?? "",
       temperature: 0.7, maxTokens: 5, stream: true,
     };
-    if (!cfg.baseUrl || !cfg.apiKey || !cfg.model) {
-      const r: TestResult = { ok: false, kind, message: "请先填写 Chat 的 Base URL / API Key / 模型" };
+    const validation = validateChatConfig(cfg);
+    if ("error" in validation) {
+      const r: TestResult = { ok: false, kind, message: "Chat 配置无效：" + validation.error };
       return { status: 400, data: r };
     }
     try {

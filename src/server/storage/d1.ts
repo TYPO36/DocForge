@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/d1";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { documents, chunks, entities, relations, type DocumentRow, type ChunkRow } from "../db/schema";
 import type { Storage, NewDocument, DocEntity, DocRelation, EntityRecord, RelationRecord, GraphStatePatch } from "./types";
 
@@ -37,7 +37,7 @@ export class D1Storage implements Storage {
     const rows = await this.db.select().from(documents).where(eq(documents.id, id));
     return rows[0];
   }
-  async updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount">>) {
+  async updateDocument(id: string, patch: Partial<Pick<DocumentRow, "status" | "error" | "chunkCount" | "embeddingProfile">>) {
     await this.db.update(documents).set(patch).where(eq(documents.id, id));
   }
   async updateGraphState(id: string, patch: GraphStatePatch) {
@@ -100,6 +100,21 @@ export class D1Storage implements Storage {
     const rows = await this.db.select().from(relations);
     return rows.map((r) => ({ docId: r.docId, source: r.source, target: r.target, description: r.description ?? "" }));
   }
+  async graphByDocIds(docIds: string[]): Promise<{ entities: EntityRecord[]; relations: RelationRecord[] }> {
+    if (docIds.length === 0) return { entities: [], relations: [] };
+    const batches = chunkIds(docIds, 100);
+    const [entityRows, relationRows] = await Promise.all([
+      Promise.all(batches.map((ids) => this.db.select().from(entities).where(inArray(entities.docId, ids)))).then((rows) => rows.flat()),
+      Promise.all(batches.map((ids) => this.db.select().from(relations).where(inArray(relations.docId, ids)))).then((rows) => rows.flat()),
+    ]);
+    return {
+      entities: entityRows.map((r) => ({
+        docId: r.docId, name: r.name, type: r.type ?? "", mentions: r.mentions ?? 1,
+        chunkSeqs: parseChunkSeqs(r.chunkSeqs),
+      })),
+      relations: relationRows.map((r) => ({ docId: r.docId, source: r.source, target: r.target, description: r.description ?? "" })),
+    };
+  }
 
   async putFile(key: string, data: ArrayBuffer | Uint8Array, contentType: string) {
     if (!this.r2) return; // 未启用 R2：跳过原文件持久化（上传/索引/问答不受影响）
@@ -128,5 +143,20 @@ export class D1Storage implements Storage {
       .update(documents)
       .set({ status: "failed", error: "上次处理被异常中断，可重新索引或删除后重传" })
       .where(eq(documents.status, "processing"));
+  }
+}
+
+function chunkIds(ids: string[], size: number): string[][] {
+  const batches: string[][] = [];
+  for (let index = 0; index < ids.length; index += size) batches.push(ids.slice(index, index + size));
+  return batches;
+}
+
+function parseChunkSeqs(value: string | null): number[] {
+  try {
+    const parsed = JSON.parse(value ?? "[]");
+    return Array.isArray(parsed) ? parsed.map(Number).filter((item: number) => Number.isFinite(item)) : [];
+  } catch {
+    return [];
   }
 }

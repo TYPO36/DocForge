@@ -59,9 +59,10 @@ npx wrangler r2 bucket create docforge-files
 # 3. 把 database_id 填入 wrangler.jsonc
 #    "database_id": "你的D1数据库ID"
 
-# 4. 初始化数据库表（新库：0000；已有旧库：再执行 0001 补图谱表与列）
+# 4. 初始化数据库表（新库：0000、0001、0002；已有旧库按顺序补执行未运行的迁移）
 npx wrangler d1 execute docforge --remote --file=drizzle/0000_init.sql
 npx wrangler d1 execute docforge --remote --file=drizzle/0001_rag_v2.sql
+npx wrangler d1 execute docforge --remote --file=drizzle/0002_embedding_profile.sql
 
 # 5. 构建并部署
 npm run build:web
@@ -118,7 +119,11 @@ npx wrangler secret put SESSION_SECRET
   | POST | /api/chat | SSE 流式问答（RAG v2 管线） |
   | POST | /api/config/test | 连接测试（body: {kind: chat|embed}） |
 
-AI 配置通过请求头传递：x-chat-* / x-embed-* / x-index-*（图谱抽取专用模型，可选，默认回退 chat）/ x-rerank-*（可选）/ x-opt-rewrite|x-opt-graph|x-opt-rerank（"1"/"0" 开关，默认 1/1/0）。Key 不落盘。
+AI 配置通过请求头传递：x-chat-* / x-embed-*（含 `x-embed-dimension`）/ x-index-*（图谱抽取专用模型，可选，默认回退 chat）/ x-rerank-*（可选）/ x-opt-rewrite|x-opt-graph|x-opt-rerank（"1"/"0" 开关，默认 1/1/0）。Key 不落盘。
+
+### 更换 Embedding 后重建索引
+
+文档会记录不含 API Key 的 Embedding 服务地址、模型和实际向量维度标识。切换其中任一项后，文档库会显示「需重建索引」；请逐个点击「重建索引」。全部现有文档均与当前模型不兼容时，问答接口会拒绝检索并明确提示此操作，避免返回看似正常但实际无关的答案。升级前创建的历史文档没有该标识，仍保持兼容，以便平滑迁移。
 
 ## 环境变量（本地/Docker）
 
