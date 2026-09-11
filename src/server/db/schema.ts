@@ -23,7 +23,7 @@ export const chunks = sqliteTable("chunks", {
   text: text("text").notNull(),
   page: integer("page"),
   tokens: integer("tokens").notNull().default(0),
-  vector: text("vector").notNull(), // JSON number[]
+  vector: text("vector").notNull(), // 向量文本：新数据为 f32:<base64>，历史数据兼容 JSON number[]
 });
 
 // —— RAG v2：LightRAG 式轻量图谱（实体名按文档记录，跨文档同名在查询期聚合）

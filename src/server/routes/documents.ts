@@ -9,6 +9,7 @@ import { buildDocGraph } from "../services/graph";
 import { embedCfgOf, chatCfgOf, indexCfgOf, optionsOf, graphProfileOf } from "../services/reqCfg";
 import { validateEmbedConfig, validateFileName, validateOptionalModelConfig } from "../services/requestValidation";
 import { embeddingProfileOf } from "../../shared/embeddingProfile";
+import { encodeVector } from "../services/vectorCodec";
 import { randomUUID } from "node:crypto";
 
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB ?? 20);
@@ -133,7 +134,7 @@ export function documentsRoutes(storage: Storage) {
             text: c.text,
             page: c.page ?? null,
             tokens: Math.ceil(c.text.length / 3),
-            vector: JSON.stringify(vectors[i] ?? []),
+            vector: encodeVector(vectors[i] ?? []),
           }));
           // 解析/向量化期间文档可能已被删除：放弃提交，避免留下孤儿块与原文件
           if (!(await storage.getDocument(docId))) {
@@ -274,7 +275,7 @@ export function documentsRoutes(storage: Storage) {
       await storage.deleteChunksByDoc(id);
       const rows = chunks.map((c, i) => ({
         id: randomUUID(), docId: id, seq: i, text: c.text, page: c.page ?? null,
-        tokens: Math.ceil(c.text.length / 3), vector: JSON.stringify(vectors[i] ?? []),
+        tokens: Math.ceil(c.text.length / 3), vector: encodeVector(vectors[i] ?? []),
       }));
       await storage.insertChunks(rows);
       let graph: GraphOutcome = NONE;

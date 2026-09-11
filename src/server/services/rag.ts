@@ -6,6 +6,7 @@ import { cosine, buildSources, type RetrievedChunk, type RetrievedFact, type Doc
 import { keywordScores, tokenizeQuery } from "./bm25";
 import { matchEntityRefs, matchFacts, toRetrievedFacts } from "./graph";
 import { embeddingProfileOf } from "../../shared/embeddingProfile";
+import { decodeVector } from "./vectorCodec";
 
 export interface RagStats {
   variants: string[];
@@ -116,7 +117,7 @@ export async function runRag(
   const vecOf = (i: number): number[] | null => {
     let v = vecCache.get(i);
     if (v === undefined) {
-      try { v = rows[i]?.vector ? (JSON.parse(rows[i].vector) as number[]) : null; } catch { v = null; }
+      v = decodeVector(rows[i]?.vector);
       vecCache.set(i, v);
     }
     return v;
