@@ -275,6 +275,35 @@ body {
 .save-bar { display: flex; align-items: center; gap: 14px; justify-content: flex-end; }
 .save-bar .note { font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
 .save-bar .note svg { width: 13px; height: 13px; color: var(--success); }
+.save-toast {
+  position: fixed; top: 76px; right: 24px; z-index: 80;
+  width: min(360px, calc(100vw - 32px));
+  display: flex; align-items: flex-start; gap: 11px;
+  background: var(--bg); border: 1px solid rgba(22, 163, 74, .24); border-radius: 12px;
+  padding: 13px 14px; box-shadow: 0 14px 36px rgba(15, 23, 42, .14), 0 2px 8px rgba(15, 23, 42, .06);
+  animation: save-toast-in .22s ease-out;
+}
+.save-toast-icon {
+  width: 28px; height: 28px; border-radius: 9px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--success); background: #f0fdf4;
+}
+.save-toast-icon svg { width: 15px; height: 15px; }
+.save-toast-body { flex: 1; min-width: 0; display: grid; gap: 2px; padding-top: 1px; }
+.save-toast-body strong { font-size: 13px; font-weight: 650; color: var(--text); }
+.save-toast-body span { font-size: 11.5px; color: var(--dim); }
+.save-toast-close {
+  width: 24px; height: 24px; margin: -3px -4px 0 0; padding: 0;
+  border: none; border-radius: 7px; background: transparent; color: var(--dim);
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; font-family: inherit; transition: .12s;
+}
+.save-toast-close:hover { color: var(--text); background: var(--hover); }
+.save-toast-close svg { width: 14px; height: 14px; }
+@keyframes save-toast-in {
+  from { opacity: 0; transform: translate3d(12px, -8px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
 .about-card { display: flex; gap: 17px; align-items: center; background: var(--bg); border: 1px solid #dbeafe; border-radius: 12px; padding: 20px 22px; }
 .about-card .big { width: 42px; height: 42px; border-radius: 11px; background: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .about-card .big svg { width: 19px; height: 19px; stroke: #fff; }
@@ -303,6 +332,7 @@ body {
   .sidebar { width: 200px; }
   .row { grid-template-columns: 1fr; }
   .content { padding: 20px 16px 50px; }
+  .save-toast { top: 70px; right: 16px; }
   .body-settings { flex-direction: column; }
   .lnav { width: 100%; display: flex; gap: 6px; flex-wrap: wrap; }
   .settings-section { scroll-margin-top: 12px; }
